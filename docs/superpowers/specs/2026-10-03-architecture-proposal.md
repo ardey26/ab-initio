@@ -180,3 +180,10 @@ evolution selects the learning-rate gene down. Immediate-reward learning locks i
 
 Verdict: the primitive set and generated chemistry are sufficient. The binding constraint was ecology:
 alternatives are selected under scarcity of the default resource. Replication on seeds 2, 6, 0 pending.
+
+Replication (growth 4, K=2, no learning, 40k ticks):
+- Seed 2: transition by 8k ticks. Artifact energy 53% -> 96%, combine 12% -> 22%, pop 2.8k -> 4.6k. Agent combines 2.1M/window vs environmental 2.2M.
+- Seed 6: slow partial transition. Artifact energy 18% -> 55% and rising at 40k, combine 5.7% -> 13%, pop 1.3k -> 2.3k.
+- Seed 0: extinct at 4k. Plant nutrition 0.30 at growth 4 cannot sustain the founding population. Scarcity must be
+  tuned per world or the generator must guarantee a viable autotroph; dead worlds otherwise dominate.
+Result replicates: 3 of 3 surviving seeds transition to artifact-based life under scarcity; 0 of 7 runs did under abundance.

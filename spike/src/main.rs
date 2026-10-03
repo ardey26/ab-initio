@@ -70,6 +70,17 @@ fn evolve(args: &[String]) {
                 s.artifacts_in_use.len(), w.held_artifacts(), s.materials_eaten.len(), w.chem.n_known(), mean_e, s.env_reactions, s.env_hot, eta, imit
             );
             assert_eq!(w.total_mass(), m0, "mass conservation violated");
+            if args.iter().any(|a| a == "--top") {
+                let mut v: Vec<(u32, f64)> = s.energy_by_material.iter().map(|(&k, &e)| (k, e)).collect();
+                v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                let tot: f64 = v.iter().map(|e| e.1).sum();
+                eprintln!("t={} top foods by energy:", w.tick);
+                for (id, e) in v.iter().take(6) {
+                    let p = w.chem.props[*id as usize];
+                    let rec = match w.chem.recipe[*id as usize] { Some(r) => format!("{} + {} @t{}", r.a, r.b, r.tq), None => "base".to_string() };
+                    eprintln!("  id {:6} {:5.1}%  nutri {:.2} toxic {:.2}  recipe: {}", id, 100.0 * e / tot, p[chem::P_NUTRI], p[chem::P_TOXIC], rec);
+                }
+            }
             if args.iter().any(|a| a == "--dump") {
                 let alive: Vec<&Agent> = w.agents.iter().filter(|a| a.alive).collect();
                 let (sf, si, pl) = w.soil_split();

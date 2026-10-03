@@ -131,6 +131,7 @@ pub struct Stats {
     pub energy_from_artifacts: f64,
     pub artifacts_in_use: HashSet<u32>,
     pub materials_eaten: HashSet<u32>,
+    pub energy_by_material: std::collections::HashMap<u32, f64>,
 }
 
 pub struct Config {
@@ -495,6 +496,7 @@ impl World {
                     }
                     self.stats.energy_total += gain.max(0.0) as f64;
                     self.stats.materials_eaten.insert(mid);
+                    *self.stats.energy_by_material.entry(mid).or_insert(0.0) += gain.max(0.0) as f64;
                     if self.chem.is_artifact(mid) {
                         self.stats.energy_from_artifacts += gain.max(0.0) as f64;
                         self.stats.artifacts_in_use.insert(mid);
