@@ -45,3 +45,12 @@ fn a_run_with_events_differs_from_one_without() {
     b.run(60);
     assert_ne!(state_hash(&a), state_hash(&b));
 }
+
+#[test]
+fn pending_events_change_the_state_hash() {
+    let a = World::new(&cfg());
+    let mut b = World::new(&cfg());
+    assert_eq!(state_hash(&a), state_hash(&b));
+    b.events.push(10, ExternalEvent::Temperature { cx: 1, cy: 1, radius: 1, delta: 0.1 });
+    assert_ne!(state_hash(&a), state_hash(&b));
+}

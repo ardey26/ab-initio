@@ -1,3 +1,4 @@
+use crate::events::ExternalEvent;
 use crate::rng::mix64;
 use crate::world::World;
 
@@ -39,6 +40,38 @@ pub fn state_hash(w: &World) -> u64 {
         mix(c.elevation.to_bits() as u64);
         mix(c.ore as u64);
     }
+    // Pending interventions decide future ticks, and the ledger is part of the invariant.
+    mix(w.events.cursor as u64);
+    mix(w.events.entries.len() as u64);
+    for (tick, ev) in &w.events.entries[w.events.cursor..] {
+        mix(*tick);
+        match ev {
+            ExternalEvent::Rain { cx, cy, radius, water_per_cell } => {
+                mix(0);
+                mix(*cx as u64 | (*cy as u64) << 16 | (*radius as u64) << 32);
+                mix(*water_per_cell as u64);
+            }
+            ExternalEvent::Temperature { cx, cy, radius, delta } => {
+                mix(1);
+                mix(*cx as u64 | (*cy as u64) << 16 | (*radius as u64) << 32);
+                mix(delta.to_bits() as u64);
+            }
+            ExternalEvent::DropMatter { x, y, material, mass } => {
+                mix(2);
+                mix(*x as u64 | (*y as u64) << 16);
+                mix(*material as u64 | (*mass as u64) << 32);
+            }
+            ExternalEvent::Impact { cx, cy, radius } => {
+                mix(3);
+                mix(*cx as u64 | (*cy as u64) << 16 | (*radius as u64) << 32);
+            }
+            ExternalEvent::SeedOrganism { x, y } => {
+                mix(4);
+                mix(*x as u64 | (*y as u64) << 16);
+            }
+        }
+    }
+    mix(w.external_mass as u64);
     mix(w.next_id);
     mix(w.chem.table.len() as u64);
     h
