@@ -31,7 +31,7 @@ pub struct PhaseTimes {
 
 impl PhaseTimes {
     pub fn total(&self) -> Duration {
-        self.sort + self.decide + self.chunks + self.boundary + self.mint + self.births + self.fields
+        self.rows().iter().map(|r| r.1).sum()
     }
 
     pub fn rows(&self) -> [(&'static str, Duration); 7] {
@@ -62,85 +62,10 @@ pub fn split_chunks<'a>(cells: &'a mut [Cell], agents: &'a mut [Agent], agent_st
 
 impl World {
     pub fn step(&mut self) {
-        self.sort_agents();
-        // 2. decide (parallel over agents, frozen world)
-        let intents: Vec<Intent> = {
-            let w = &*self;
-            w.agents.par_iter().map(|a| decide(w, a)).collect()
-        };
-        self.stats.agent_steps += intents.len() as u64;
-        // 3. chunk tasks
-        let grid_ro = Grid { width: self.grid.width, height: self.grid.height, cells: Vec::new() };
-        let (seed, tick, growth, fire) = (self.cfg.seed, self.tick, self.growth, self.cfg.fire);
-        let chem = &self.chem;
-        let cell_start = &self.cell_start;
-        let agent_start = self.agent_start.clone();
-        let outs: Vec<ChunkOut> = {
-            let parts = split_chunks(&mut self.grid.cells, &mut self.agents, &agent_start);
-            parts
-                .into_par_iter()
-                .enumerate()
-                .map(|(ch, (cells, agents))| {
-                    let cell_base = ch * World::CHUNK_CELLS;
-                    let a0 = agent_start[ch] as usize;
-                    let mut out = ChunkOut { stats: Stats::default(), deferred: Vec::new(), births: Vec::new(), pending: Vec::new() };
-                    {
-                        let mut ctx = ChunkCtx { cells, cell_base, agents, agent_base_cell_start: cell_start, chem, grid: &grid_ro, tick, stats: &mut out.stats, deferred: &mut out.deferred };
-                        for la in 0..ctx.agents.len() {
-                            apply_interior(&mut ctx, la, &intents[a0 + la]);
-                        }
-                        metabolize_chunk(&mut ctx, seed, &mut out.births);
-                        let ChunkCtx { cells, stats, .. } = ctx;
-                        chunk_physics(cells, cell_base, seed, tick, chem, growth, fire, stats, &mut out.pending);
-                    }
-                    out
-                })
-                .collect()
-        };
-        // 4. sequential boundary pass in chunk order
-        let index: HashMap<u64, usize> = self.agents.iter().enumerate().map(|(i, a)| (a.id, i)).collect();
-        for out in &outs {
-            self.stats.merge(&out.stats);
-            for d in &out.deferred {
-                let id = match d {
-                    Deferred::MoveAcross { agent_id, .. } | Deferred::Combine { agent_id, .. } => *agent_id,
-                };
-                if let Some(&ai) = index.get(&id) {
-                    if self.agents[ai].alive {
-                        apply_deferred(self, d, ai);
-                    }
-                }
-            }
-        }
-        let mut pending = Vec::new();
-        for out in &outs {
-            pending.extend_from_slice(&out.pending);
-        }
-        mint_reactions(self, &pending);
-        for out in outs {
-            for mut child in out.births {
-                if self.agents.len() >= self.cfg.max_agents {
-                    // Capacity reached: the child's body mass returns to its cell as soil.
-                    let cell = self.grid.idx(child.x, child.y);
-                    self.grid.cells[cell].add(crate::chem::generate::MAT_SOIL, child.body);
-                    continue;
-                }
-                child.id = self.next_id;
-                self.next_id += 1;
-                self.agents.push(child);
-            }
-        }
-        // 5. fields
-        diffuse_soil(&mut self.grid);
-        diffuse_water(&mut self.grid);
-        relax_temperature(&mut self.grid, TEMP_DECAY);
-        // 6. external events
-        self.apply_events();
-        // 7.
-        self.tick += 1;
+        self.step_timed(&mut PhaseTimes::default());
     }
 
-    /// Same as `step`, with a wall-clock timer around each phase. Must stay semantically identical.
+    /// The tick body, with a wall-clock timer around each phase. `step` delegates here.
     pub fn step_timed(&mut self, t: &mut PhaseTimes) {
         let mut clock = Instant::now();
         let mut lap = |d: &mut Duration| {
@@ -255,6 +180,7 @@ mod tests {
     use crate::hash::state_hash;
     use crate::world::config::WorldConfig;
 
+    // Smoke test: `step` delegates to `step_timed`, so this guards the delegation and that timing records.
     #[test]
     fn step_timed_matches_step() {
         let cfg = WorldConfig { seed: 21, width: 64, height: 64, pop0: 600, chem: ChemParams { n_base: 16, ..Default::default() }, ..Default::default() };

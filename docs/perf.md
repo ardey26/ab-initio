@@ -164,7 +164,7 @@ Brief 20k shape, 8 threads (`phases --pop 20000 --ticks 300`, pop_end 1684):
 The brief's remedies are keyed to one dominant phase each:
 
 - `forward` or `observe` dominant (remedies 1 and 2): both live inside decide, which is 15-31% of the tick across shapes. It is never the dominant phase.
-- Sequential boundary pass above 25% of the tick (speedup remedy 3): `boundary_deferred + boundary_mint` is 14.4% (default), 15.1% (brief 20k), 13.5% (20k graze 400) and 17.0% (100k). Below the threshold.
+- Sequential boundary pass above 25% of the tick (speedup remedy 3): `boundary_deferred + boundary_mint` is 14.4% (default), 15.1% (brief 20k), 13.5% (20k graze 400) and 17.0% (100k). Below the threshold. Under the broader reading "all sequential work" (sort + boundary + mint + births) the share is 28.5% at the default shape and 61.7% at 100k, but remedy 3 only moves minting (6-8% of the tick), so it still could not have closed the gap.
 
 The dominant phases are `fields_events` at low population (36-43%) and the sequential `sort_agents` at sustained population (32% at 15k agents, 42% at 55k). No remedy on the brief's list targets either, so no optimization was applied. This follows the task rule: no speculative changes, and no remedies outside the list.
 
