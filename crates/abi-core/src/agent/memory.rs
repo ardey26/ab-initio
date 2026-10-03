@@ -83,4 +83,64 @@ mod tests {
         assert!(!m.knows(0), "oldest entry evicted");
         assert!(m.knows(1));
     }
+
+    #[test]
+    fn evicts_oldest_regardless_of_slot_position() {
+        let mut m = SocialMemory::new();
+        for other in 0..SLOTS as u64 {
+            m.record(other, [0.0, 0.0, 0.0, 1.0], (100 - other) as u32);
+        }
+        m.record(99, [0.0, 0.0, 0.0, 1.0], 200);
+        assert!(m.knows(99));
+        assert!(!m.knows(7), "oldest entry (id 7, tick 93) evicted from slot 7");
+        assert!(m.knows(0));
+    }
+
+    #[test]
+    fn fills_empty_slots_before_evicting() {
+        let mut m = SocialMemory::new();
+        m.record(1, [0.0, 0.0, 0.0, 1.0], 5);
+        m.record(2, [0.0, 0.0, 0.0, 1.0], 6);
+        m.record(3, [0.0, 0.0, 0.0, 1.0], 7);
+        m.record(4, [0.0, 0.0, 0.0, 1.0], 1);
+        assert!(m.knows(1));
+        assert!(m.knows(2));
+        assert!(m.knows(3));
+        assert!(m.knows(4), "empty slots used, nothing evicted");
+    }
+
+    #[test]
+    fn ties_evict_lowest_index() {
+        let mut m = SocialMemory::new();
+        for other in 10..18 as u64 {
+            m.record(other, [0.0, 0.0, 0.0, 1.0], 50);
+        }
+        m.record(99, [0.0, 0.0, 0.0, 1.0], 51);
+        assert!(!m.knows(10), "lowest index evicted on tick tie");
+        for other in 11..18 as u64 {
+            assert!(m.knows(other));
+        }
+    }
+
+    #[test]
+    fn evicted_slot_is_zeroed_for_new_id() {
+        let mut m = SocialMemory::new();
+        for other in 0..SLOTS as u64 {
+            m.record(other, [5.0, 5.0, 5.0, 5.0], other as u32);
+        }
+        m.record(99, [1.0, 0.0, 0.0, 0.0], 100);
+        assert_eq!(m.get(99), [1.0, 0.0, 0.0, 0.0], "evicted slot zeroed, no memory of old entry");
+    }
+
+    #[test]
+    fn re_recording_known_id_in_full_table_evicts_nothing() {
+        let mut m = SocialMemory::new();
+        for other in 0..SLOTS as u64 {
+            m.record(other, [0.0, 0.0, 0.0, 1.0], other as u32 + 10);
+        }
+        m.record(3, [0.0, 0.0, 0.0, 1.0], 50);
+        for other in 0..SLOTS as u64 {
+            assert!(m.knows(other), "re-recording known id evicts nothing");
+        }
+    }
 }
