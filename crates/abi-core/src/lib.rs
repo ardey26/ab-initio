@@ -4,3 +4,5 @@ pub mod world;
 pub mod agent;
 pub mod stats;
 pub mod hash;
+pub mod novelty;
+pub mod metrics;

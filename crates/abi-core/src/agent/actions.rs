@@ -115,12 +115,21 @@ pub fn take_pick(cell: &Cell, chem: &Chemistry, target: &[f32; NP]) -> Option<Ma
 pub fn apply_interior(ctx: &mut ChunkCtx, la: usize, intent: &Intent) {
     let code = intent.code() as usize;
     ctx.stats.actions[code] += 1;
-    let (x, y, my_id) = {
+    let (held_id, held_mass) = ctx.agents[la].held[0];
+    let (x, y, my_id, recent) = {
         let a = &mut ctx.agents[la];
         a.energy -= ACTION_COST[code];
         a.last_action = code as u8;
-        (a.x, a.y, a.id)
+        a.recent = (a.recent << 3 | code as u32) & 0xFFF;
+        (a.x, a.y, a.id, a.recent)
     };
+    let (nb, hb) = if held_mass > 0 {
+        let p = ctx.chem.props(held_id);
+        (crate::novelty::bin2(p[P_NUTRI]), crate::novelty::bin2(p[P_HARD]))
+    } else {
+        (0, 0)
+    };
+    ctx.stats.behaviours.push(crate::novelty::gram(recent, nb, hb));
     let here = ctx.grid.idx(x, y);
     match *intent {
         Intent::Move(d) => {

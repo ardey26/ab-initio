@@ -45,7 +45,7 @@ impl World {
             let genome = Genome::random(&mut r);
             let cell = grid.idx(x, y);
             let body = grid.cells[cell].remove(MAT_SOIL, BODY_TARGET);
-            agents.push(Agent { alive: true, id: i as u64, parent: u64::MAX, x, y, energy: START_ENERGY, age: 0, body, held: [(0, 0); 2], signal: [0.0; 2], last_action: NO_ACTION, genome, memory: SocialMemory::new() });
+            agents.push(Agent { alive: true, id: i as u64, parent: u64::MAX, x, y, energy: START_ENERGY, age: 0, body, held: [(0, 0); 2], signal: [0.0; 2], last_action: NO_ACTION, recent: 0, genome, memory: SocialMemory::new() });
         }
         let n_chunks = grid.n_chunks();
         let n_cells = grid.len();

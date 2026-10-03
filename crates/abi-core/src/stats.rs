@@ -21,6 +21,7 @@ pub struct Stats {
     pub energy_from_artifacts: f64,
     pub materials_in_use: Vec<MatId>,
     pub eaten_by_material: Vec<(MatId, f64)>,
+    pub behaviours: Vec<u32>,
 }
 
 impl Stats {
@@ -44,6 +45,15 @@ impl Stats {
         self.energy_from_artifacts += o.energy_from_artifacts;
         self.materials_in_use.extend_from_slice(&o.materials_in_use);
         self.eaten_by_material.extend_from_slice(&o.eaten_by_material);
+        self.behaviours.extend_from_slice(&o.behaviours);
+    }
+
+    /// Distinct behaviour keys this window.
+    pub fn distinct_behaviours(&self) -> usize {
+        let mut v = self.behaviours.clone();
+        v.sort_unstable();
+        v.dedup();
+        v.len()
     }
 
     /// Distinct materials in use this window.

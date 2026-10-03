@@ -79,7 +79,7 @@ pub fn metabolize_chunk(ctx: &mut ChunkCtx, seed: u64, births: &mut Vec<Agent>) 
             let genome = a.genome.mutate(&mut rng);
             let d = rng.range(4) as u8;
             let (cx, cy) = ctx.grid.step(x, y, d);
-            births.push(Agent { alive: true, id: u64::MAX, parent: id, x: cx, y: cy, energy: a.energy, age: 0, body: child_body, held: [(0, 0); 2], signal: [0.0; 2], last_action: NO_ACTION, genome, memory: SocialMemory::new() });
+            births.push(Agent { alive: true, id: u64::MAX, parent: id, x: cx, y: cy, energy: a.energy, age: 0, body: child_body, held: [(0, 0); 2], signal: [0.0; 2], last_action: NO_ACTION, recent: 0, genome, memory: SocialMemory::new() });
             ctx.stats.births += 1;
         }
     }

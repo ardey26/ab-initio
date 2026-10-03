@@ -39,6 +39,7 @@ pub struct Agent {
     pub held: [(MatId, u32); 2],
     pub signal: [f32; 2],
     pub last_action: u8,
+    pub recent: u32,
     pub genome: Genome,
     pub memory: SocialMemory,
 }
