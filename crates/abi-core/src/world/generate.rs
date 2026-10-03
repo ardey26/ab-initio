@@ -121,7 +121,7 @@ mod tests {
             assert_eq!(a.water, b.water);
         }
         let fertile = t1.grid.cells.iter().filter(|c| c.fertile()).count();
-        assert!(fertile > 400 && fertile < 3800, "fertile {}", fertile);
+        assert!(fertile > 1024 && fertile < 3072, "fertile {} of 4096: expected roughly half", fertile);
         assert_eq!(t1.fertile_cells, fertile);
         for c in &t1.grid.cells {
             assert_eq!(c.get(MAT_SOIL), SOIL0);
@@ -148,5 +148,22 @@ mod tests {
         let fertile = t.grid.cells.iter().filter(|c| c.fertile()).count();
         assert_eq!(fertile, 0);
         assert_eq!(calibrate_growth(1024, fertile, 100.0), 0);
+    }
+
+    #[test]
+    fn harmonics_are_periodic() {
+        let mut rng = Rng::new(3);
+        let h = Harmonics::new(&mut rng, 64, 32, 6);
+
+        // Test a few sample points for periodicity
+        for x in [0.0, 10.5, 23.7, 50.2] {
+            for y in [0.0, 5.3, 15.8, 28.9] {
+                let v0 = h.at(x, y);
+                let vx = h.at(x + 64.0, y);
+                let vy = h.at(x, y + 32.0);
+                assert!((v0 - vx).abs() < 1e-4, "x period failed at ({}, {})", x, y);
+                assert!((v0 - vy).abs() < 1e-4, "y period failed at ({}, {})", x, y);
+            }
+        }
     }
 }

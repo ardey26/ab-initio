@@ -2,7 +2,8 @@ use crate::chem::generate::MAT_SOIL;
 use crate::chem::props::MatId;
 use serde::{Deserialize, Serialize};
 
-pub const FERTILE_WATER: u32 = 500;
+/// Half of WATER_MAX: the wetness median, so about half the cells are fertile.
+pub const FERTILE_WATER: u32 = 1000;
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub struct Cell {
