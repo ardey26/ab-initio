@@ -1,6 +1,7 @@
 //! Headless grid world. Two-phase deterministic tick:
 //!   phase 1 (parallel): every agent reads the frozen world and emits an intent;
-//!   phase 2 (sequential): intents are applied in (cell, agent id) order.
+//!   phase 2 (sequential): intents are applied in (cell, agent id) order, then
+//!   metabolism, lifetime learning, and world physics.
 //! Mass is integer and exactly conserved. Energy is open (star in, heat out).
 
 use crate::brain::*;
@@ -13,7 +14,7 @@ pub const BODY_TARGET: u32 = 500;
 pub const BODY_REPRO: u32 = 1000;
 pub const TAKE_MAX: u32 = 1000;
 pub const DIGEST_RATE: u32 = 100;
-pub const ENERGY_PER_UNIT: f32 = 150.0; // energy from 1000 mass at nutrition 1.0
+pub const ENERGY_PER_UNIT: f32 = 150.0;
 pub const BASE_COST: f32 = 1.0;
 pub const REPRO_ENERGY: f32 = 250.0;
 pub const START_ENERGY: f32 = 200.0;
@@ -25,23 +26,22 @@ pub const PLANT_GROWTH: u32 = 40;
 pub const PLANT_CAP: u32 = 3000;
 pub const STRIKE_YIELD: u32 = 500;
 pub const SOIL_DIFFUSION: u32 = 8;
-pub const COLD_WEATHER_PERIOD: u64 = 32; // cold cells react once per this many ticks on average
-pub const WEATHER_RATE: u32 = 10; // mass of each reactant consumed per tick by in-cell reaction
-pub const EROSION: u32 = 10; // ore mass released per tick from bedrock
+pub const COLD_WEATHER_PERIOD: u64 = 32;
+pub const WEATHER_RATE: u32 = 10;
+pub const EROSION: u32 = 10;
 pub const BEDROCK0: u32 = 1_000_000;
 pub const VOLCANIC_FRAC: f32 = 0.02;
 pub const VOLCANIC_TEMP: f32 = 0.8;
 
 const COST: [f32; 8] = [0.3, 0.2, 0.2, 1.0, 3.0, 2.0, 0.2, 0.1];
-pub const ACTION_NAMES: [&str; 8] = ["move", "take", "drop", "combine", "heat", "strike", "give", "emit"];
 
 #[derive(Clone, Default)]
 pub struct Cell {
-    pub inv: Vec<(u32, u32)>, // (material id, mass)
+    pub inv: Vec<(u32, u32)>,
     pub temp: f32,
     pub ambient: f32,
-    pub bedrock: u32, // mass locked in the crust
-    pub ore: u32, // which material the crust here erodes into
+    pub bedrock: u32,
+    pub ore: u32,
     pub fertile: bool,
 }
 
@@ -87,7 +87,10 @@ pub struct Agent {
     pub body: u32,
     pub held: [(u32, u32); 2],
     pub signal: [f32; 2],
+    pub last_action: u8,
     pub genome: Genome,
+    pub w: Box<[f32; NW]>, // lifetime weights
+    pub learner: Learner,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -100,6 +103,16 @@ pub enum Intent {
     Strike,
     Give,
     Emit([f32; 2]),
+}
+
+/// Per-decision scratch kept for the learning step.
+#[derive(Clone, Copy)]
+pub struct Scratch {
+    pub h: [f32; NH],
+    pub probs: [f32; NACT],
+    pub act: u8,
+    pub other_act: u8, // 255 = none observed
+    pub energy_before: f32,
 }
 
 #[derive(Default, Clone)]
@@ -120,6 +133,20 @@ pub struct Stats {
     pub materials_eaten: HashSet<u32>,
 }
 
+pub struct Config {
+    pub seed: u64,
+    pub w: usize,
+    pub h: usize,
+    pub n_base: usize,
+    pub pop0: usize,
+    pub max_agents: usize,
+    pub random_policy: bool,
+    pub learn: bool,
+    pub k: usize,
+    pub amplitude: f32,
+    pub rho: f32,
+}
+
 pub struct World {
     pub seed: u64,
     pub w: usize,
@@ -131,15 +158,17 @@ pub struct World {
     pub next_id: u64,
     pub max_agents: usize,
     pub random_policy: bool,
+    pub learn: bool,
     pub stats: Stats,
-    order: Vec<u32>, // agent indices sorted by (cell, id)
+    order: Vec<u32>,
     cell_start: Vec<u32>,
     free: Vec<u32>,
 }
 
 impl World {
-    pub fn new(seed: u64, w: usize, h: usize, n_base: usize, pop0: usize, max_agents: usize, random_policy: bool) -> Self {
-        let chem = Chemistry::generate(seed, n_base);
+    pub fn new(cfg: &Config) -> Self {
+        let (seed, w, h, n_base) = (cfg.seed, cfg.w, cfg.h, cfg.n_base);
+        let chem = Chemistry::generate(seed, n_base, cfg.k, cfg.amplitude, cfg.rho);
         let mut rng = Rng::new(seed ^ 0x3031_4C44_0000_0001);
         let mut cells = vec![Cell::default(); w * h];
         for c in cells.iter_mut() {
@@ -160,18 +189,18 @@ impl World {
                 }
             }
         }
-        let mut agents = Vec::with_capacity(max_agents);
-        for i in 0..pop0 {
+        let mut agents = Vec::with_capacity(cfg.max_agents);
+        for i in 0..cfg.pop0 {
             let mut r = Rng::new(hash3(seed, 0xA6E7, i as u64));
             let x = r.range(w) as u16;
             let y = r.range(h) as u16;
-            let genome = Genome::random(&mut r);
-            // Agent body mass is taken from the soil of its starting cell (closed matter).
+            let genome = Genome::random(&mut r, cfg.learn);
             let cell = &mut cells[y as usize * w + x as usize];
             let got = cell.remove(MAT_SOIL, BODY_TARGET);
-            agents.push(Agent { alive: true, id: i as u64, x, y, energy: START_ENERGY, age: 0, body: got, held: [(0, 0); 2], signal: [0.0; 2], genome });
+            let wts = genome.w.clone();
+            agents.push(Agent { alive: true, id: i as u64, x, y, energy: START_ENERGY, age: 0, body: got, held: [(0, 0); 2], signal: [0.0; 2], last_action: 255, genome, w: wts, learner: Learner::new() });
         }
-        World { seed, w, h, tick: 0, cells, agents, chem, next_id: pop0 as u64, max_agents, random_policy, stats: Stats::default(), order: Vec::new(), cell_start: vec![0; w * h + 1], free: Vec::new() }
+        World { seed, w, h, tick: 0, cells, agents, chem, next_id: cfg.pop0 as u64, max_agents: cfg.max_agents, random_policy: cfg.random_policy, learn: cfg.learn, stats: Stats::default(), order: Vec::new(), cell_start: vec![0; w * h + 1], free: Vec::new() }
     }
 
     #[inline]
@@ -186,8 +215,6 @@ impl World {
         ((((x as i32 + dx) % w + w) % w) as u16, (((y as i32 + dy) % h + h) % h) as u16)
     }
 
-    /// Sort living agents by (cell, id); build per-cell ranges. Serves both
-    /// neighbour lookup in phase 1 and application order in phase 2.
     fn build_order(&mut self) {
         self.order.clear();
         for (i, a) in self.agents.iter().enumerate() {
@@ -215,7 +242,8 @@ impl World {
         &self.order[self.cell_start[c] as usize..self.cell_start[c + 1] as usize]
     }
 
-    fn observe(&self, a: &Agent, input: &mut [f32; NIN]) {
+    /// Returns the observed neighbour's last action (255 if none).
+    fn observe(&self, a: &Agent, input: &mut [f32; NIN]) -> u8 {
         let mut k = 0;
         input[k] = a.energy / 300.0;
         k += 1;
@@ -224,15 +252,13 @@ impl World {
         for s in 0..2 {
             let (id, mass) = a.held[s];
             if mass > 0 {
-                let p = &self.chem.props[id as usize];
-                input[k..k + NP].copy_from_slice(p);
+                input[k..k + NP].copy_from_slice(&self.chem.props[id as usize]);
             } else {
                 input[k..k + NP].fill(0.0);
             }
             input[k + NP] = mass as f32 / TAKE_MAX as f32;
             k += NP + 1;
         }
-        // Here + 4 neighbours: max nutrition, max hardness, total loose mass, temp.
         let here = self.cidx(a.x, a.y);
         let mut cells = [here; 5];
         for d in 0..4u8 {
@@ -254,7 +280,6 @@ impl World {
             input[k + 3] = cell.temp;
             k += 4;
         }
-        // Properties of the two most massive loose items here (soil excluded).
         {
             let mut items: Vec<(u32, u32)> = self.cells[here].inv.iter().copied().filter(|e| e.0 != MAT_SOIL).collect();
             items.sort_by(|p, q| q.1.cmp(&p.1).then(p.0.cmp(&q.0)));
@@ -272,40 +297,50 @@ impl World {
         let others = self.agents_in(here);
         input[k] = (others.len() as f32 - 1.0).max(0.0) / 5.0;
         k += 1;
-        // Signal of the lowest-id other agent in the cell.
         let mut sig = [0f32; 2];
+        let mut other_act = 255u8;
         for &o in others {
             let o = &self.agents[o as usize];
             if o.id != a.id {
                 sig = o.signal;
+                other_act = o.last_action;
                 break;
             }
         }
         input[k] = sig[0];
         input[k + 1] = sig[1];
         k += 2;
+        for i in 0..NACT {
+            input[k + i] = if other_act as usize == i { 1.0 } else { 0.0 };
+        }
+        k += NACT;
         debug_assert_eq!(k, NIN);
+        other_act
     }
 
-    fn decide(&self, ai: u32) -> Intent {
+    fn decide(&self, ai: u32) -> (Intent, Scratch) {
         let a = &self.agents[ai as usize];
         let mut rng = Rng::new(hash3(self.seed, self.tick, a.id));
         let mut out = [0f32; NOUT];
+        let mut h = [0f32; NH];
+        let mut input = [0f32; NIN];
+        let other_act = self.observe(a, &mut input);
         if self.random_policy {
             for o in out.iter_mut() {
                 *o = rng.normal();
             }
         } else {
-            let mut input = [0f32; NIN];
-            self.observe(a, &mut input);
-            a.genome.forward(&input, &mut out);
+            forward(&a.w, &input, &mut h, &mut out);
         }
-        match sample(&out[O_ACT..O_ACT + 8], &mut rng) {
+        let mut probs = [0f32; NACT];
+        softmax(&out[O_ACT..O_ACT + NACT], &mut probs);
+        let act = sample(&out[O_ACT..O_ACT + NACT], &mut rng);
+        let intent = match act {
             0 => Intent::Move(sample(&out[O_DIR..O_DIR + 4], &mut rng) as u8),
             1 => {
                 let mut t = [0f32; NP];
                 for i in 0..NP {
-                    t[i] = 1.0 / (1.0 + (-out[O_TAKE + i]).exp());
+                    t[i] = squash(out[O_TAKE + i]);
                 }
                 Intent::Take(t)
             }
@@ -315,27 +350,22 @@ impl World {
             5 => Intent::Strike,
             6 => Intent::Give,
             _ => Intent::Emit([out[O_EMIT].tanh(), out[O_EMIT + 1].tanh()]),
-        }
+        };
+        (intent, Scratch { h, probs, act: act as u8, other_act, energy_before: a.energy })
     }
 
-    fn apply(&mut self, ai: u32, intent: Intent) {
+    fn apply(&mut self, ai: u32, intent: Intent, code: u8) {
         let (x, y) = {
             let a = &self.agents[ai as usize];
             (a.x, a.y)
         };
         let here = self.cidx(x, y);
-        let code = match intent {
-            Intent::Move(_) => 0,
-            Intent::Take(_) => 1,
-            Intent::Drop(_) => 2,
-            Intent::Combine => 3,
-            Intent::Heat => 4,
-            Intent::Strike => 5,
-            Intent::Give => 6,
-            Intent::Emit(_) => 7,
-        };
-        self.stats.actions[code] += 1;
-        self.agents[ai as usize].energy -= COST[code];
+        self.stats.actions[code as usize] += 1;
+        {
+            let a = &mut self.agents[ai as usize];
+            a.energy -= COST[code as usize];
+            a.last_action = code;
+        }
         match intent {
             Intent::Move(d) => {
                 let (nx, ny) = self.step_dir(x, y, d);
@@ -352,11 +382,8 @@ impl World {
                     let p = &self.chem.props[id as usize];
                     (0..NP).map(|i| (p[i] - target[i]) * (p[i] - target[i])).sum()
                 };
-                let pick = self.cells[here].inv.iter().filter(|e| e.0 != MAT_SOIL).min_by(|p, q| {
-                    dist(p.0).partial_cmp(&dist(q.0)).unwrap().then(p.0.cmp(&q.0))
-                });
+                let pick = self.cells[here].inv.iter().filter(|e| e.0 != MAT_SOIL).min_by(|p, q| dist(p.0).partial_cmp(&dist(q.0)).unwrap().then(p.0.cmp(&q.0)));
                 if let Some(&(id, _)) = pick {
-                    // Stack onto an existing slot of the same id, else the empty slot.
                     let a = &mut self.agents[ai as usize];
                     let slot = a.held.iter().position(|h| h.0 == id && h.1 > 0).unwrap_or(slot);
                     let room = TAKE_MAX.saturating_sub(a.held[slot].1);
@@ -379,11 +406,10 @@ impl World {
                 }
                 let temp = self.cells[here].temp;
                 let id = self.chem.combine(ida, idb, temp);
-                let hot = temp >= Chemistry::hot_threshold(&self.chem.props[ida as usize], &self.chem.props[idb as usize]);
                 let a = &mut self.agents[ai as usize];
                 a.held = [(id, ma + mb), (0, 0)];
                 self.stats.combines_ok += 1;
-                if hot {
+                if temp > AMBIENT + 0.1 {
                     self.stats.combines_hot += 1;
                 }
                 self.stats.artifacts_in_use.insert(id);
@@ -404,7 +430,6 @@ impl World {
                     self.cells[here].add(MAT_ROCK, got);
                     self.stats.strikes_ok += 1;
                 } else if let Some(r) = self.chem.recipe[id as usize] {
-                    // Break an artifact back into its parts (mass split, exact).
                     let half = m / 2;
                     let a = &mut self.agents[ai as usize];
                     if a.held[1].1 == 0 {
@@ -440,7 +465,6 @@ impl World {
         }
     }
 
-    /// Metabolism, digestion, excretion, death, reproduction. Sequential.
     fn metabolize(&mut self) {
         let n = self.agents.len();
         for i in 0..n {
@@ -452,7 +476,6 @@ impl World {
             let a = &mut self.agents[i];
             a.energy -= BASE_COST;
             a.age += 1;
-            // Digestion: anything held above the digestion threshold is food.
             for s in 0..2 {
                 let (mid, m) = a.held[s];
                 if m == 0 {
@@ -476,13 +499,11 @@ impl World {
                     }
                 }
             }
-            // Excrete above body target (unless saving for reproduction).
             if a.body > BODY_REPRO + 200 {
                 let ex = a.body - (BODY_REPRO + 200);
                 a.body -= ex;
                 self.cells[here].add(MAT_SOIL, ex);
             }
-            // Death: everything returns to the cell.
             if a.energy <= 0.0 || a.age > LIFESPAN {
                 a.alive = false;
                 let body = a.body;
@@ -497,7 +518,6 @@ impl World {
                 self.free.push(i as u32);
                 continue;
             }
-            // Reproduction: asexual division.
             if a.energy >= REPRO_ENERGY && a.body >= BODY_REPRO {
                 let slot = if let Some(f) = self.free.pop() {
                     Some(f as usize)
@@ -506,15 +526,17 @@ impl World {
                 } else {
                     continue;
                 };
+                let learn = self.learn;
                 let a = &mut self.agents[i];
                 a.energy *= 0.5;
                 a.body -= BODY_TARGET;
                 let child_energy = a.energy;
                 let mut rng = Rng::new(hash3(self.seed ^ 0xB1B7, self.tick, id));
-                let genome = a.genome.mutate(&mut rng);
+                let genome = a.genome.mutate(&mut rng, learn);
                 let d = rng.range(4) as u8;
                 let (cx, cy) = self.step_dir(x, y, d);
-                let child = Agent { alive: true, id: self.next_id, x: cx, y: cy, energy: child_energy, age: 0, body: BODY_TARGET, held: [(0, 0); 2], signal: [0.0; 2], genome };
+                let wts = genome.w.clone();
+                let child = Agent { alive: true, id: self.next_id, x: cx, y: cy, energy: child_energy, age: 0, body: BODY_TARGET, held: [(0, 0); 2], signal: [0.0; 2], last_action: 255, genome, w: wts, learner: Learner::new() };
                 self.next_id += 1;
                 self.stats.births += 1;
                 match slot {
@@ -525,9 +547,28 @@ impl World {
         }
     }
 
+    /// Reward-modulated learning and imitation, for agents that acted this tick.
+    fn learn(&mut self, scratch: &[Scratch]) {
+        if !self.learn {
+            return;
+        }
+        for (k, &i) in self.order.iter().enumerate() {
+            let a = &mut self.agents[i as usize];
+            if !a.alive {
+                continue;
+            }
+            let s = &scratch[k];
+            a.learner.accumulate(&s.h, &s.probs, s.act as usize);
+            let delta_e = a.energy - s.energy_before;
+            let eta = a.genome.eta;
+            a.learner.reward(&mut a.w, delta_e, eta);
+            if s.other_act != 255 {
+                imitate(&mut a.w, &s.h, &s.probs, s.other_act as usize, a.genome.imit);
+            }
+        }
+    }
+
     fn physics(&mut self) {
-        // Soil diffuses to neighbours (exact integer transfers). Without circulation,
-        // matter locks up in sinks and the biosphere starves.
         let (w, h) = (self.w, self.h);
         for y in 0..h {
             for x in 0..w {
@@ -547,7 +588,6 @@ impl World {
             }
         }
         for ci in 0..self.cells.len() {
-            // Erosion: crust releases its ore into the loose inventory.
             let c = &mut self.cells[ci];
             if c.bedrock > 0 {
                 let e = c.bedrock.min(EROSION);
@@ -555,7 +595,6 @@ impl World {
                 let ore = c.ore;
                 c.add(ore, e);
             }
-            // Weathering: the two most massive loose items react, cold or hot.
             let mut top: [(u32, u32); 2] = [(0, 0); 2];
             for &(id, m) in c.inv.iter() {
                 if id == MAT_SOIL {
@@ -575,10 +614,9 @@ impl World {
                 c.remove(top[0].0, WEATHER_RATE);
                 c.remove(top[1].0, WEATHER_RATE);
                 let id = self.chem.combine(top[0].0, top[1].0, temp);
-                let hot = temp >= Chemistry::hot_threshold(&self.chem.props[top[0].0 as usize], &self.chem.props[top[1].0 as usize]);
                 self.cells[ci].add(id, 2 * WEATHER_RATE);
                 self.stats.env_reactions += 1;
-                if hot {
+                if hot_cell {
                     self.stats.env_hot += 1;
                 }
             }
@@ -586,7 +624,7 @@ impl World {
         for c in self.cells.iter_mut() {
             c.temp = c.ambient + (c.temp - c.ambient) * TEMP_DECAY;
             if c.fertile {
-                let plant = c.inv.iter().find(|e| e.0 == MAT_PLANT).map(|e| e.1).unwrap_or(0);
+                let plant = c.get(MAT_PLANT);
                 if plant < PLANT_CAP {
                     let g = c.remove(MAT_SOIL, PLANT_GROWTH.min(PLANT_CAP - plant));
                     c.add(MAT_PLANT, g);
@@ -597,13 +635,16 @@ impl World {
 
     pub fn step(&mut self) {
         self.build_order();
-        let intents: Vec<Intent> = self.order.par_iter().map(|&i| self.decide(i)).collect();
-        self.stats.agent_steps += intents.len() as u64;
-        for k in 0..self.order.len() {
-            let i = self.order[k];
-            self.apply(i, intents[k]);
+        let decisions: Vec<(Intent, Scratch)> = self.order.par_iter().map(|&i| self.decide(i)).collect();
+        self.stats.agent_steps += decisions.len() as u64;
+        let order = self.order.clone();
+        for (k, &i) in order.iter().enumerate() {
+            let (intent, s) = decisions[k];
+            self.apply(i, intent, s.act);
         }
         self.metabolize();
+        let scratch: Vec<Scratch> = decisions.iter().map(|d| d.1).collect();
+        self.learn(&scratch);
         self.physics();
         self.tick += 1;
     }
@@ -612,7 +653,6 @@ impl World {
         self.agents.iter().filter(|a| a.alive).count()
     }
 
-    /// Total mass anywhere: cells (loose + bedrock) + agent bodies + held.
     pub fn total_mass(&self) -> u64 {
         let cells: u64 = self.cells.iter().map(|c| c.mass()).sum();
         let agents: u64 = self.agents.iter().filter(|a| a.alive).map(|a| a.body as u64 + a.held[0].1 as u64 + a.held[1].1 as u64).sum();
@@ -630,6 +670,7 @@ impl World {
                 mix(a.body as u64);
                 mix(a.held[0].0 as u64 | (a.held[0].1 as u64) << 32);
                 mix(a.held[1].0 as u64 | (a.held[1].1 as u64) << 32);
+                mix(a.w[NW - 1].to_bits() as u64);
             }
         }
         for c in &self.cells {
@@ -650,9 +691,7 @@ impl World {
     }
 
     pub fn soil_split(&self) -> (u64, u64, u64) {
-        let mut fert = 0u64;
-        let mut infert = 0u64;
-        let mut plant = 0u64;
+        let (mut fert, mut infert, mut plant) = (0u64, 0u64, 0u64);
         for c in &self.cells {
             if c.fertile { fert += c.get(MAT_SOIL) as u64 } else { infert += c.get(MAT_SOIL) as u64 }
             plant += c.get(MAT_PLANT) as u64;
@@ -672,5 +711,19 @@ impl World {
             }
         }
         s.len()
+    }
+
+    /// Mean lifetime learning rate and imitation gain over living agents.
+    pub fn mean_learning(&self) -> (f32, f32) {
+        let mut n = 0f32;
+        let (mut e, mut im) = (0f32, 0f32);
+        for a in &self.agents {
+            if a.alive {
+                n += 1.0;
+                e += a.genome.eta;
+                im += a.genome.imit;
+            }
+        }
+        (e / n.max(1.0), im / n.max(1.0))
     }
 }
