@@ -42,8 +42,8 @@ pub fn metabolize_chunk(ctx: &mut ChunkCtx, seed: u64, births: &mut Vec<Agent>) 
                 }
                 let g = gain.max(0.0) as f64;
                 ctx.stats.energy_total += g;
-                ctx.stats.eaten_by_material.push((mid, g));
-                ctx.stats.materials_in_use.push(mid);
+                ctx.stats.note_eaten(mid, g);
+                ctx.stats.note_material(mid);
                 if ctx.chem.table.is_artifact(mid) {
                     ctx.stats.energy_from_artifacts += g;
                 }

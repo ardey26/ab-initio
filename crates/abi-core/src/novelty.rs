@@ -15,6 +15,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gram_bit_layout() {
+        assert_eq!(gram(0, 3, 3), 0xF000);
+        assert_eq!(gram(0o7777, 0, 0), 0xFFF);
+        assert_eq!(gram(0xFFFFFF, 0, 0), 0xFFF);
+        assert_eq!(bin2(0.0), 0);
+        assert_eq!(bin2(0.25), 1);
+        assert_eq!(bin2(0.999), 3);
+        assert_eq!(bin2(1.5), 3);
+    }
+
+    #[test]
     fn gram_packs_actions_and_bins_distinctly() {
         let a = gram(0o1234, 1, 2);
         let b = gram(0o1234, 2, 2);

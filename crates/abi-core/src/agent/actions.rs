@@ -129,7 +129,7 @@ pub fn apply_interior(ctx: &mut ChunkCtx, la: usize, intent: &Intent) {
     } else {
         (0, 0)
     };
-    ctx.stats.behaviours.push(crate::novelty::gram(recent, nb, hb));
+    ctx.stats.note_behaviour(crate::novelty::gram(recent, nb, hb));
     let here = ctx.grid.idx(x, y);
     match *intent {
         Intent::Move(d) => {
@@ -253,7 +253,7 @@ pub fn apply_deferred(w: &mut World, d: &Deferred, ai: usize) {
             if Chemistry::hot(temp) {
                 w.stats.combines_hot += 1;
             }
-            w.stats.materials_in_use.push(id);
+            w.stats.note_material(id);
         }
     }
 }
