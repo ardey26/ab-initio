@@ -5,7 +5,7 @@
 use super::cell::Cell;
 use crate::chem::generate::{MAT_AUTOTROPH, MAT_SOIL};
 use crate::chem::props::*;
-use crate::chem::Chemistry;
+use crate::chem::{Chemistry, HOT_TEMP};
 use crate::rng::hash3;
 use crate::stats::Stats;
 use crate::world::World;
@@ -38,10 +38,12 @@ pub fn chunk_physics(cells: &mut [Cell], cell_base: usize, seed: u64, tick: u64,
             let ore = c.ore;
             c.add(ore, e);
         }
-        // Fire: first loose non-soil item that is energetic and above its melting point.
+        // Fire: first loose non-soil item that is energetic and above both its
+        // melting point and HOT_TEMP. Ambient cells never ignite; a heat source
+        // (volcanic cell, heat action, an adjacent fire via FIRE_HEAT) is needed.
         let fuel = c.inv.iter().filter(|e| e.0 != MAT_SOIL && e.1 > 0).find(|e| {
             let p = chem.props(e.0);
-            p[P_ENERGY] > FIRE_ENERGY && c.temp > p[P_MELT]
+            p[P_ENERGY] > FIRE_ENERGY && c.temp > p[P_MELT].max(HOT_TEMP)
         }).map(|e| e.0);
         if let Some(f) = fuel {
             let burned = c.remove(f, BURN_RATE);
@@ -196,5 +198,23 @@ mod tests {
         assert!(w.grid.cells[c].temp > 0.5);
         assert_eq!(w.stats.fires, 1);
         assert_eq!(w.total_mass(), m0);
+    }
+
+    #[test]
+    fn fire_needs_a_heat_source_above_ambient_to_ignite() {
+        let mut w = world();
+        let c = 9;
+        let fuel_raw = { let mut p = [0f32; NP]; p[P_ENERGY] = 3.0; p[P_MELT] = -8.0; p };
+        let fuel = w.chem.table.intern(fuel_raw, crate::chem::table::Recipe { a: 1, b: 3, tq: 0 });
+        assert!(w.chem.props(fuel)[P_MELT] < crate::world::generate::AMBIENT, "fuel melts below ambient");
+        for other in w.grid.cells.iter_mut() {
+            other.inv.clear();
+            other.bedrock = 0;
+        }
+        w.grid.cells[c].add(fuel, 100);
+        w.grid.cells[c].temp = crate::world::generate::AMBIENT;
+        let _ = run(&mut w);
+        assert_eq!(w.grid.cells[c].get(fuel), 100, "no fire at ambient temperature");
+        assert_eq!(w.stats.fires, 0);
     }
 }
