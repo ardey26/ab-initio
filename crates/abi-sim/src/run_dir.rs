@@ -11,6 +11,11 @@ pub struct RunDir {
 
 impl RunDir {
     pub fn create(root: &Path) -> std::io::Result<RunDir> {
+        let ck = root.join("checkpoints");
+        let has_checkpoints = ck.is_dir() && fs::read_dir(&ck)?.next().is_some();
+        if has_checkpoints || root.join("metrics.csv").exists() {
+            return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "run directory is not empty; choose a new --out"));
+        }
         fs::create_dir_all(root.join("checkpoints"))?;
         Ok(RunDir { root: root.to_path_buf() })
     }
