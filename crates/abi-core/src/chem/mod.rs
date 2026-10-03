@@ -54,4 +54,9 @@ impl Chemistry {
     pub fn props(&self, id: MatId) -> &Props {
         self.table.props(id)
     }
+
+    /// Rebuild indexes after deserialization.
+    pub fn after_load(&mut self) {
+        self.table.rebuild_indexes();
+    }
 }

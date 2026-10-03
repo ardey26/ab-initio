@@ -20,7 +20,9 @@ pub struct MaterialTable {
     props: Vec<Props>,
     recipe: Vec<Option<Recipe>>,
     evicted: Vec<bool>,
+    #[serde(skip)]
     by_bin: HashMap<BinKey, MatId>,
+    #[serde(skip)]
     by_recipe: HashMap<Recipe, MatId>,
 }
 
@@ -68,7 +70,8 @@ impl MaterialTable {
     }
 
     /// Intern a reaction result. Returns the id of its bin, reviving an evicted id
-    /// if the bin was seen before.
+    /// if the bin was seen before. Identity is the bin; data (raw, props, recipe)
+    /// never change after creation, even through eviction/revival.
     pub fn intern(&mut self, raw: Props, recipe: Recipe) -> MatId {
         let raw = clamp_raw(&raw);
         let p = squash_all(&raw);
@@ -76,9 +79,7 @@ impl MaterialTable {
         let id = match self.by_bin.get(&key) {
             Some(&id) => {
                 if self.evicted[id as usize] {
-                    self.raw[id as usize] = raw;
-                    self.props[id as usize] = p;
-                    self.recipe[id as usize] = Some(recipe);
+                    // Only un-evict; do not modify stored data
                     self.evicted[id as usize] = false;
                 }
                 id
@@ -112,6 +113,16 @@ impl MaterialTable {
             self.by_recipe.retain(|_, &mut id| !evicted[id as usize]);
         }
         n
+    }
+
+    /// Rebuild lookup indexes from the data. Used after deserialization.
+    /// Refills by_bin mapping and clears by_recipe cache.
+    pub fn rebuild_indexes(&mut self) {
+        self.by_bin.clear();
+        self.by_recipe.clear();
+        for id in 0..self.raw.len() {
+            self.by_bin.entry(quantize(&self.props[id])).or_insert(id as MatId);
+        }
     }
 }
 
@@ -187,5 +198,87 @@ mod tests {
         assert_eq!(Chemistry::temp_bucket(5.0), 3);
         assert!(!Chemistry::hot(0.3));
         assert!(Chemistry::hot(0.31));
+    }
+
+    #[test]
+    fn revival_preserves_material_data() {
+        let mut t = MaterialTable::new(generate_base(1, 4));
+        let r1 = Recipe { a: 1, b: 2, tq: 0 };
+        let r2 = Recipe { a: 1, b: 3, tq: 0 };
+        let id = t.intern(raw_with_nutri(0.80), r1);
+        let props_before = *t.props(id);
+        let mut live = vec![true; t.len()];
+        live[id as usize] = false;
+        t.gc(&live);
+        assert!(t.is_evicted(id));
+        let again = t.intern(raw_with_nutri(0.82), r2); // different recipe but same bin
+        assert_eq!(again, id);
+        assert!(!t.is_evicted(id));
+        assert_eq!(*t.props(id), props_before, "props unchanged after revival");
+        assert_eq!(t.recipe(id), Some(r1), "recipe unchanged after revival");
+    }
+
+    #[test]
+    fn gc_prunes_recipe_cache() {
+        let mut t = MaterialTable::new(generate_base(1, 4));
+        let r = Recipe { a: 1, b: 2, tq: 0 };
+        let id = t.intern(raw_with_nutri(0.80), r);
+        assert_eq!(t.cached(&r), Some(id));
+        let mut live = vec![true; t.len()];
+        live[id as usize] = false;
+        t.gc(&live);
+        assert!(t.is_evicted(id));
+        assert_eq!(t.cached(&r), None, "evicted recipe removed from cache");
+        // But live recipe stays in cache
+        let r2 = Recipe { a: 2, b: 3, tq: 0 };
+        let id2 = t.intern(raw_with_nutri(0.70), r2);
+        assert_eq!(t.cached(&r2), Some(id2), "live recipe still cached");
+    }
+
+    #[test]
+    fn combine_material_with_itself() {
+        let mut c = Chemistry::new(1, &ChemParams::default());
+        let id = c.combine(4, 4, 0.2);
+        assert!(id < c.table.len() as MatId);
+        assert_eq!(c.table.recipe(id), Some(Recipe { a: 4, b: 4, tq: 0 }));
+    }
+
+    #[test]
+    fn recipe_cache_lookup() {
+        let mut t = MaterialTable::new(generate_base(1, 4));
+        let r = Recipe { a: 1, b: 2, tq: 0 };
+        let id = t.intern(raw_with_nutri(0.80), r);
+        assert_eq!(t.cached(&r), Some(id), "recipe cached immediately after intern");
+        assert_eq!(t.cached(&Recipe { a: 2, b: 1, tq: 0 }), None, "different recipe not cached");
+    }
+
+    #[test]
+    fn serialization_is_deterministic() {
+        use crate::chem::generate::ChemParams;
+        let mut c = Chemistry::new(1, &ChemParams::default());
+        let _ = c.combine(3, 5, 0.2);
+        let _ = c.combine(2, 4, 0.5);
+        let _ = c.combine(0, 1, 0.1);
+        let bytes1 = bincode::serialize(&c).unwrap();
+        let bytes2 = bincode::serialize(&c).unwrap();
+        assert_eq!(bytes1, bytes2, "serialization is deterministic");
+    }
+
+    #[test]
+    fn deserialization_and_after_load() {
+        use crate::chem::generate::ChemParams;
+        let mut c = Chemistry::new(1, &ChemParams::default());
+        let x_before = c.combine(3, 5, 0.2);
+        let y_before = c.combine(5, 3, 0.2);
+        assert_eq!(x_before, y_before);
+        let len_before = c.table.len();
+        let bytes = bincode::serialize(&c).unwrap();
+        let mut c2: Chemistry = bincode::deserialize(&bytes).unwrap();
+        c2.after_load();
+        let x_after = c2.combine(3, 5, 0.2);
+        let y_after = c2.combine(5, 3, 0.2);
+        assert_eq!(x_after, y_after);
+        assert_eq!(x_after, x_before, "combine returns same id after deserialization");
+        assert_eq!(c2.table.len(), len_before, "table length unchanged");
     }
 }
