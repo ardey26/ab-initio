@@ -114,6 +114,9 @@ fn main() {
             }
             dir.write_events(&w.events).expect("write events");
             dir.append_metrics(MetricsRow::header()).expect("write metrics header");
+            if let Err(e) = checkpoint::save(&w, &dir.checkpoint_path(0)) {
+                eprintln!("warn: checkpoint save failed at tick 0: {}", e);
+            }
             let c0 = w.conserved_mass();
             pool(world.threads).install(|| {
                 let mut t0 = Instant::now();

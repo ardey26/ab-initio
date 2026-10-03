@@ -41,6 +41,17 @@ fn run_then_replay_reproduces_hash() {
 }
 
 #[test]
+fn replay_reaches_ticks_before_first_periodic_checkpoint() {
+    let dir = tmp("early");
+    assert!(run(&dir, "60", &[]).status.success());
+    let dir10 = tmp("early10");
+    let live10 = hash_line(&run(&dir10, "10", &[]));
+    assert_eq!(hash_line(&replay(&dir, "10")), live10);
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&dir10).unwrap();
+}
+
+#[test]
 fn refuses_dirty_run_dir() {
     let dir = tmp("dirty");
     assert!(run(&dir, "10", &[]).status.success());
@@ -71,14 +82,15 @@ fn events_are_logged_and_replay_matches_live() {
     let live50 = hash_line(&run(&dir50, "50", &["--events", ev]));
     assert_eq!(hash_line(&replay(&dir, "50")), live50);
 
-    // Replay to 45 loads checkpoint 25 and steps across both events (ticks 30 and 45).
-    let dir45 = tmp("ev45");
-    let live45 = hash_line(&run(&dir45, "45", &["--events", ev]));
-    assert_eq!(hash_line(&replay(&dir, "45")), live45);
+    // Replay to 46 loads checkpoint 25 and steps across both events. The tick-45 event fires
+    // during the step from 45 to 46, so 46 is the first tick that crosses it.
+    let dir46 = tmp("ev46");
+    let live46 = hash_line(&run(&dir46, "46", &["--events", ev]));
+    assert_eq!(hash_line(&replay(&dir, "46")), live46);
 
     std::fs::remove_dir_all(&dir).unwrap();
     std::fs::remove_dir_all(&dir50).unwrap();
-    std::fs::remove_dir_all(&dir45).unwrap();
+    std::fs::remove_dir_all(&dir46).unwrap();
     std::fs::remove_file(&events).unwrap();
 }
 
