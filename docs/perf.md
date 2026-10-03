@@ -11,9 +11,10 @@ Commands use `abi-bench` defaults unless shown: seed 6, `--size 256`, `--graze 1
 |---|---|---|---|
 | us_per_agent_step, 8 threads, 20k run | <= 0.4 | 0.811 | FAIL |
 | speedup, 8 threads vs 1 | >= 6.0 | 2.85 | FAIL |
-| bytes_per_agent | <= 2048 | 1318 | pass |
+| bytes_per_agent, tick-0 founders (hidden 4..13) | <= 2048 | 1318 | pass |
+| bytes_per_agent, evolved population (128x128, 2000 founders, 3000 ticks warmup; hidden-24 genome alone is ~2.35 KB) | <= 2048 | 1404 | pass |
 | checkpoint_bytes, 256x256, 20k agents | <= 100 MB | 14,131,554 | pass |
-| ticks_per_s, 100k-agent shape | >= 60 | 33.6 | FAIL |
+| ticks_per_s, 256x256, 100k founders falling to ~16k (not the spec's sustained 100k on 512x512; at ~55k agents the phase run gives ~41 ms/tick ≈ 24 t/s) | >= 60 | 33.6 | FAIL |
 
 All M1 budgets are NOT met. See "Known gaps".
 
@@ -48,6 +49,17 @@ bytes_per_agent 1318
 checkpoint_bytes 14131554
 materials 24
 ```
+
+### Evolved population
+
+```
+$ abi-bench memory --size 128 --pop 2000 --warmup 3000
+bytes_per_agent 1404
+checkpoint_bytes 2787903
+materials 23225
+```
+
+The tick-0 figure (1318) covers founders only (hidden 4..13). The evolved figure is the mean over the population alive after 3000 ticks; a single hidden-24 genome alone is about 2.35 KB, so populations that evolve toward the maximum hidden size will exceed the 2048 budget.
 
 ### Default shape (pop 9800, graze 100)
 

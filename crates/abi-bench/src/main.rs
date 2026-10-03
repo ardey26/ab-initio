@@ -31,7 +31,28 @@ struct Shape {
 
 impl Shape {
     fn cfg(&self) -> WorldConfig {
-        WorldConfig { seed: self.seed, width: self.size, height: self.size, pop0: self.pop, graze_capacity_per_1000: self.graze, chem: ChemParams::default(), ..Default::default() }
+        // fire is explicitly off: the reference seeds were selected with fire off.
+        WorldConfig { seed: self.seed, width: self.size, height: self.size, pop0: self.pop, graze_capacity_per_1000: self.graze, chem: ChemParams::default(), fire: false, ..Default::default() }
+    }
+}
+
+// Shape for the emergence run: its own defaults (128x128, 1000 founders), the
+// size and founder count the reference seeds were scanned at.
+#[derive(clap::Args, Clone)]
+struct EmergenceShape {
+    #[arg(long, default_value_t = 128)]
+    size: usize,
+    #[arg(long, default_value_t = 1000)]
+    pop: usize,
+    #[arg(long, default_value_t = 6)]
+    seed: u64,
+    #[arg(long, default_value_t = 100.0)]
+    graze: f32,
+}
+
+impl EmergenceShape {
+    fn cfg(&self) -> WorldConfig {
+        Shape { size: self.size, pop: self.pop, seed: self.seed, graze: self.graze }.cfg()
     }
 }
 
@@ -40,9 +61,10 @@ enum Cmd {
     Throughput { #[command(flatten)] shape: Shape, #[arg(long, default_value_t = 500)] ticks: u64, #[arg(long, default_value_t = 8)] threads: usize, #[arg(long, default_value_t = 200)] warmup: u64 },
     /// Per-phase share of the tick.
     Phases { #[command(flatten)] shape: Shape, #[arg(long, default_value_t = 300)] ticks: u64, #[arg(long, default_value_t = 8)] threads: usize, #[arg(long, default_value_t = 100)] warmup: u64 },
-    Memory { #[command(flatten)] shape: Shape },
+    /// Memory per agent; `--warmup` runs the world first so an evolved population can be measured.
+    Memory { #[command(flatten)] shape: Shape, #[arg(long, default_value_t = 0)] warmup: u64 },
     Speedup { #[command(flatten)] shape: Shape, #[arg(long, default_value_t = 300)] ticks: u64 },
-    Emergence { #[command(flatten)] shape: Shape, #[arg(long, default_value_t = 60000)] ticks: u64, #[arg(long, default_value_t = 8)] threads: usize },
+    Emergence { #[command(flatten)] shape: EmergenceShape, #[arg(long, default_value_t = 60000)] ticks: u64, #[arg(long, default_value_t = 8)] threads: usize },
 }
 
 fn pool(n: usize) -> rayon::ThreadPool {
@@ -84,8 +106,9 @@ fn main() {
             }
             println!("{:<18} {:>9.3} ms/tick\npop_end {}", "total", total * 1e3 / ticks as f64, pop);
         }
-        Cmd::Memory { shape } => {
-            let w = World::new(&shape.cfg());
+        Cmd::Memory { shape, warmup } => {
+            let mut w = World::new(&shape.cfg());
+            pool(8).install(|| w.run(warmup));
             let n = w.agents.len().max(1);
             let bytes: usize = w.agents.iter().map(|a| std::mem::size_of::<abi_core::agent::Agent>() + a.genome.bytes()).sum();
             let path = std::env::temp_dir().join("abi-bench-ck.bin.zst");
@@ -102,9 +125,7 @@ fn main() {
             println!("ticks_per_s_1 {:.1}\nticks_per_s_8 {:.1}\nspeedup {:.2}\ndeterministic {}", t1, t8, t8 / t1, h1 == h8);
         }
         Cmd::Emergence { shape, ticks, threads } => {
-            let mut cfg = shape.cfg();
-            if shape.size == 256 { cfg.width = 128; cfg.height = 128; }
-            cfg.pop0 = 1000;
+            let cfg = shape.cfg();
             pool(threads).install(|| {
                 let mut w = World::new(&cfg);
                 let mut best = 0.0f64;

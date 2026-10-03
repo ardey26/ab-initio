@@ -4,7 +4,8 @@ use abi_core::world::config::WorldConfig;
 use abi_core::world::World;
 
 fn transitions(seed: u64, ticks: u64) -> f64 {
-    let cfg = WorldConfig { seed, width: 128, height: 128, pop0: 1000, graze_capacity_per_1000: 100.0, chem: ChemParams { n_base: 24, k: 2, ..Default::default() }, ..Default::default() };
+    // fire is explicitly off: the reference seeds were selected with fire off.
+    let cfg = WorldConfig { seed, width: 128, height: 128, pop0: 1000, graze_capacity_per_1000: 100.0, chem: ChemParams { n_base: 24, k: 2, ..Default::default() }, fire: false, ..Default::default() };
     let mut w = World::new(&cfg);
     let mut best = 0.0f64;
     let window = 4000;
@@ -26,7 +27,7 @@ fn transitions(seed: u64, ticks: u64) -> f64 {
 /// Task 19 scan (seeds 0..20, fire off), best fraction: 6 (0.916),
 /// 0 (0.836), 20 (0.692), 18 (0.646).
 #[test]
-#[ignore = "takes ~20 minutes; run with --ignored. The emergence regression: primitives must still produce artifact-based life under scarcity."]
+#[ignore = "takes ~11 minutes; run with --ignored. The emergence regression: primitives must still produce artifact-based life under scarcity."]
 fn reference_seeds_transition_to_artifact_based_life() {
     let mut passed = 0;
     for seed in [6u64, 0, 20, 18] {
