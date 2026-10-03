@@ -9,9 +9,9 @@ use crate::world::World;
 
 pub fn observe(w: &World, a: &Agent, input: &mut [f32; NIN]) -> u8 {
     let mut k = 0;
-    input[k] = a.energy / 300.0;
+    input[k] = (a.energy / 300.0).clamp(0.0, 2.0);
     k += 1;
-    input[k] = a.age as f32 / LIFESPAN as f32;
+    input[k] = (a.age as f32 / LIFESPAN as f32).clamp(0.0, 2.0);
     k += 1;
     for s in 0..2 {
         let (id, mass) = a.held[s];
@@ -20,7 +20,7 @@ pub fn observe(w: &World, a: &Agent, input: &mut [f32; NIN]) -> u8 {
         } else {
             input[k..k + NP].fill(0.0);
         }
-        input[k + NP] = mass as f32 / TAKE_MAX as f32;
+        input[k + NP] = (mass as f32 / TAKE_MAX as f32).clamp(0.0, 2.0);
         k += NP + 1;
     }
     let here = w.grid.idx(a.x, a.y);
@@ -62,7 +62,7 @@ pub fn observe(w: &World, a: &Agent, input: &mut [f32; NIN]) -> u8 {
     let mut mem = [0f32; 4];
     for o in others {
         if o.id != a.id {
-            sig = o.signal;
+            sig = [o.signal[0].clamp(-1.0, 1.0), o.signal[1].clamp(-1.0, 1.0)];
             other_act = o.last_action;
             mem = a.memory.get(o.id);
             break;
@@ -109,19 +109,88 @@ mod tests {
 
     #[test]
     fn observation_sees_properties_not_ids() {
-        // Two agents with identical surroundings but different held ids of identical props see the same input.
+        // The held block carries the material's properties and mass, never its id.
         let mut w = small_world();
-        let (ida, idb) = (3u32, 3u32); // same material in both: inputs must match exactly
-        w.agents[0].held[0] = (ida, 100);
-        w.agents[1].held[0] = (idb, 100);
-        w.agents[1].x = w.agents[0].x;
-        w.agents[1].y = w.agents[0].y;
-        w.agents[1].energy = w.agents[0].energy;
+        let (ida, idb) = (3u32, 5u32);
+        assert_ne!(w.chem.props(ida), w.chem.props(idb), "test needs materials with different props");
+        let pa = w.agents.iter().position(|a| a.id == 0).unwrap();
+        let pb = w.agents.iter().position(|a| a.id == 1).unwrap();
+        w.agents[pa].held[0] = (ida, 100);
+        w.agents[pb].held[0] = (idb, 100);
+        w.agents[pb].x = w.agents[pa].x;
+        w.agents[pb].y = w.agents[pa].y;
         w.sort_agents();
-        let (a, b) = (w.agents[0].clone(), w.agents[1].clone());
+        let a = w.agents.iter().find(|a| a.id == 0).unwrap().clone();
+        let b = w.agents.iter().find(|a| a.id == 1).unwrap().clone();
+        assert_eq!((a.x, a.y), (b.x, b.y));
         let (mut ia, mut ib) = ([0f32; NIN], [0f32; NIN]);
         observe(&w, &a, &mut ia);
         observe(&w, &b, &mut ib);
-        assert_eq!(&ia[2..11], &ib[2..11]);
+        assert_eq!(&ia[2..10], w.chem.props(ida));
+        assert_eq!(&ib[2..10], w.chem.props(idb));
+        assert!((ia[10] - 0.1).abs() < 1e-6 && (ib[10] - 0.1).abs() < 1e-6);
+        for v in ia.iter() {
+            assert!((v - ida as f32).abs() > 1e-6, "id {ida} leaked into the observation");
+        }
+        for v in ib.iter() {
+            assert!((v - idb as f32).abs() > 1e-6, "id {idb} leaked into the observation");
+        }
+    }
+
+    #[test]
+    fn observation_is_bounded_for_extreme_agent_state() {
+        let mut w = small_world();
+        let me = w.agents.iter().position(|a| a.id == 0).unwrap();
+        w.agents[me].energy = 1.0e6;
+        w.agents[me].age = 1_000_000;
+        w.agents[me].held[0] = (3, 1_000_000);
+        let a = w.agents[me].clone();
+        let mut input = [0f32; NIN];
+        observe(&w, &a, &mut input);
+        assert!(input.iter().all(|v| v.is_finite() && *v >= -1.0 && *v <= 2.0));
+        w.agents[me].energy = -50.0;
+        let a = w.agents[me].clone();
+        observe(&w, &a, &mut input);
+        assert!(input.iter().all(|v| v.is_finite() && *v >= -1.0 && *v <= 2.0));
+    }
+
+    #[test]
+    fn observation_clamps_neighbour_signal() {
+        let mut w = small_world();
+        let other = w.agents.iter().position(|a| a.id == 1).unwrap();
+        let me = w.agents.iter().position(|a| a.id == 0).unwrap();
+        w.agents[other].x = w.agents[me].x;
+        w.agents[other].y = w.agents[me].y;
+        w.agents[other].signal = [50.0, -50.0];
+        w.sort_agents();
+        let a = w.agents.iter().find(|a| a.id == 0).unwrap().clone();
+        let mut input = [0f32; NIN];
+        observe(&w, &a, &mut input);
+        assert_eq!(&input[58..60], &[1.0, -1.0]);
+    }
+
+    #[test]
+    fn observe_sees_lowest_id_neighbour() {
+        let mut w = World::new(&WorldConfig { seed: 1, width: 32, height: 32, pop0: 3, chem: crate::chem::generate::ChemParams { n_base: 12, ..Default::default() }, ..Default::default() });
+        let at = |w: &World, id: u64| w.agents.iter().position(|a| a.id == id).unwrap();
+        let (x, y) = (w.agents[at(&w, 0)].x, w.agents[at(&w, 0)].y);
+        for id in [1u64, 2] {
+            let i = at(&w, id);
+            w.agents[i].x = x;
+            w.agents[i].y = y;
+        }
+        let i1 = at(&w, 1);
+        let i2 = at(&w, 2);
+        w.agents[i1].last_action = 5;
+        w.agents[i2].last_action = 6;
+        w.sort_agents();
+        let a = w.agents.iter().find(|a| a.id == 0).unwrap().clone();
+        let mut input = [0f32; NIN];
+        let other = observe(&w, &a, &mut input);
+        assert_eq!(other, 5);
+        for i in 0..8 {
+            assert_eq!(input[60 + i], if i == 5 { 1.0 } else { 0.0 }, "one-hot index {i}");
+        }
+        assert_eq!(input[57], 2.0 / 5.0);
     }
 }

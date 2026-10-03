@@ -55,7 +55,7 @@ impl Stats {
     }
 
     /// Energy per material, summed and sorted descending.
-    pub fn top_foods(&self, n: usize) -> Vec<(MatId, f64)> {
+    pub fn top_eaten(&self, n: usize) -> Vec<(MatId, f64)> {
         let mut v = self.eaten_by_material.clone();
         v.sort_by_key(|e| e.0);
         let mut out: Vec<(MatId, f64)> = Vec::new();
@@ -65,8 +65,19 @@ impl Stats {
                 _ => out.push((id, e)),
             }
         }
-        out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
+        out.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
         out.truncate(n);
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn top_eaten_sums_per_material_and_sorts_descending() {
+        let s = Stats { eaten_by_material: vec![(4, 1.0), (2, 5.0), (4, 2.5), (7, 3.5)], ..Default::default() };
+        assert_eq!(s.top_eaten(2), vec![(2, 5.0), (4, 3.5)]);
     }
 }

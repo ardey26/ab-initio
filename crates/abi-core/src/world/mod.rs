@@ -113,5 +113,39 @@ mod tests {
         assert_eq!(w.agent_start.len(), w.grid.n_chunks() + 1);
         assert_eq!(*w.agent_start.last().unwrap() as usize, 100);
         assert_eq!(*w.cell_start.last().unwrap() as usize, 100);
+        let terrain_mass: u64 = generate::generate_terrain(&cfg).grid.cells.iter().map(|c| c.mass()).sum();
+        assert_eq!(w.total_mass(), terrain_mass, "founding agents move mass, never create it");
+    }
+
+    #[test]
+    fn sort_agents_slices_match_chunks_and_cells() {
+        let cfg = WorldConfig { seed: 3, width: 64, height: 64, pop0: 500, ..Default::default() };
+        let w = World::new(&cfg);
+        for ch in 0..w.grid.n_chunks() {
+            for a in &w.agents[w.agent_start[ch] as usize..w.agent_start[ch + 1] as usize] {
+                assert_eq!(w.grid.chunk_of(w.grid.idx(a.x, a.y)), ch);
+            }
+        }
+        let mut seen = 0;
+        for c in 0..w.grid.len() {
+            for a in w.agents_in(c) {
+                assert_eq!(w.grid.idx(a.x, a.y), c);
+                seen += 1;
+            }
+        }
+        assert_eq!(seen, 500);
+    }
+
+    #[test]
+    fn sort_agents_drops_dead() {
+        let cfg = WorldConfig { seed: 4, width: 32, height: 32, pop0: 100, ..Default::default() };
+        let mut w = World::new(&cfg);
+        w.agents.iter_mut().find(|a| a.id == 5).unwrap().alive = false;
+        w.sort_agents();
+        assert_eq!(w.population(), 99);
+        assert!(w.agents.iter().all(|a| a.alive));
+        assert_eq!(w.agents.len(), 99);
+        assert_eq!(*w.agent_start.last().unwrap(), 99);
+        assert_eq!(*w.cell_start.last().unwrap(), 99);
     }
 }
