@@ -1,0 +1,10 @@
+[package]
+name = "abi-core"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+rayon = "1.10"
+serde = { version = "1", features = ["derive"] }
+bincode = "1.3"
+zstd = "0.13"

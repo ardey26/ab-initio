@@ -1,0 +1,9 @@
+[package]
+name = "abi-sim"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+abi-core = { path = "../abi-core" }
+clap = { version = "4", features = ["derive"] }
+rayon = "1.10"
