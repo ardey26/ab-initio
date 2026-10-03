@@ -70,6 +70,8 @@ impl<'a> ChunkCtx<'a> {
         &self.cells[idx - self.cell_base]
     }
     /// Local indices (into `self.agents`) of agents in `cell`, in (cell, id) order.
+    /// Membership is frozen at sort time: an interior `Move` mutates `x`/`y` in
+    /// place, so callers must re-check position before treating a hit as present.
     fn locals_in(&self, cell: usize) -> std::ops::Range<usize> {
         let chunk_first = self.agent_base_cell_start[self.cell_base] as usize;
         let s = self.agent_base_cell_start[cell] as usize - chunk_first;
@@ -177,7 +179,7 @@ pub fn apply_interior(ctx: &mut ChunkCtx, la: usize, intent: &Intent) {
                 ctx.stats.strikes_mine += 1;
                 return;
             }
-            let victim = ctx.locals_in(here).find(|&l| l != la && ctx.agents[l].alive);
+            let victim = ctx.locals_in(here).find(|&l| l != la && ctx.agents[l].alive && ctx.agents[l].x == x && ctx.agents[l].y == y);
             if let Some(v) = victim {
                 let dmg = STRIKE_DAMAGE * hard * ctx.agents[la].genome.body_size;
                 let vid = ctx.agents[v].id;
@@ -204,7 +206,7 @@ pub fn apply_interior(ctx: &mut ChunkCtx, la: usize, intent: &Intent) {
             if m == 0 {
                 return;
             }
-            let target = ctx.locals_in(here).find(|&l| l != la && ctx.agents[l].alive && ctx.agents[l].free_slot().is_some());
+            let target = ctx.locals_in(here).find(|&l| l != la && ctx.agents[l].alive && ctx.agents[l].x == x && ctx.agents[l].y == y && ctx.agents[l].free_slot().is_some());
             if let Some(t) = target {
                 let tid = ctx.agents[t].id;
                 let slot = ctx.agents[t].free_slot().unwrap();
@@ -403,6 +405,39 @@ mod tests {
         assert!(matches!(deferred[0], Deferred::MoveAcross { to: (32, 5), .. }));
         apply_deferred(&mut w, &deferred[0], 0);
         assert_eq!((w.agents[0].x, w.agents[0].y), (32, 5));
+    }
+
+    #[test]
+    fn strike_and_give_skip_agents_that_moved_away() {
+        let mut w = World::new(&WorldConfig { seed: 4, width: 64, height: 32, pop0: 2, ..Default::default() });
+        // x = 5: the +x neighbour (x = 6) is in the same chunk, so Move is interior.
+        for a in w.agents.iter_mut() {
+            a.x = 5;
+            a.y = 5;
+        }
+        w.sort_agents();
+        let cell = w.grid.idx(5, 5);
+        w.grid.cells[cell].bedrock = 0;
+        let ix = |w: &World, id: u64| w.agents.iter().position(|a| a.id == id).unwrap();
+        let (i0, i1) = (ix(&w, 0), ix(&w, 1));
+        w.agents[i0].held = [(MAT_AUTOTROPH, 100), (0, 0)];
+        w.agents[i1].held = [(0, 0), (0, 0)];
+        let e1 = with_ctx(&mut w, |ctx| {
+            let l0 = ctx.agents.iter().position(|a| a.id == 0).unwrap();
+            let l1 = ctx.agents.iter().position(|a| a.id == 1).unwrap();
+            apply_interior(ctx, l1, &Intent::Move(0));
+            assert_eq!(ctx.agents[l1].x, 6, "interior move happened");
+            assert!(ctx.deferred.is_empty());
+            let e1 = ctx.agents[l1].energy;
+            apply_interior(ctx, l0, &Intent::Strike);
+            apply_interior(ctx, l0, &Intent::Give);
+            e1
+        });
+        let (a0, a1) = (&w.agents[i0], &w.agents[i1]);
+        assert_eq!(a1.energy, e1, "moved-away agent was not hit");
+        assert_eq!(a1.held, [(0, 0), (0, 0)], "moved-away agent received nothing");
+        assert_eq!(a0.held[0], (MAT_AUTOTROPH, 100), "giver kept its item");
+        assert!(!a0.memory.knows(1) && !a1.memory.knows(0));
     }
 
     #[test]
