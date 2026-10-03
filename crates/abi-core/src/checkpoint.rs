@@ -13,6 +13,11 @@ pub fn filename(tick: u64) -> String {
     format!("ck-{:012}.bin.zst", tick)
 }
 
+/// Writes a checkpoint and returns the bytes written.
+///
+/// Atomic: data goes to `path` with extension `tmp`, is synced to disk, then
+/// renamed onto `path`. A crash mid-write never leaves a truncated file at the
+/// final name.
 pub fn save(w: &World, path: &Path) -> std::io::Result<u64> {
     let body = bincode::serialize(w).map_err(std::io::Error::other)?;
     let mut out = Vec::with_capacity(body.len() / 3);
@@ -21,7 +26,12 @@ pub fn save(w: &World, path: &Path) -> std::io::Result<u64> {
     let mut enc = zstd::Encoder::new(&mut out, 3)?;
     enc.write_all(&body)?;
     enc.finish()?;
-    std::fs::write(path, &out)?;
+    let tmp = path.with_extension("tmp");
+    let mut f = std::fs::File::create(&tmp)?;
+    f.write_all(&out)?;
+    f.sync_all()?;
+    drop(f);
+    std::fs::rename(&tmp, path)?;
     Ok(out.len() as u64)
 }
 
@@ -65,6 +75,7 @@ pub mod retention {
 
     /// Returns ticks to delete. `ticks` ascending, `sizes` parallel.
     pub fn plan(ticks: &[u64], sizes: &[u64], now: u64, budget_bytes: u64, every: u64) -> Vec<u64> {
+        debug_assert_eq!(ticks.len(), sizes.len());
         if ticks.is_empty() {
             return Vec::new();
         }
@@ -78,8 +89,8 @@ pub mod retention {
             }
         }
         let mut total: u64 = kept.iter().map(|k| k.1).sum();
-        let mut j = 1; // never the earliest
-        while total > budget_bytes && j < kept.len() {
+        let mut j = 1; // never the earliest, never the newest
+        while total > budget_bytes && j + 1 < kept.len() {
             total -= kept[j].1;
             del.push(kept[j].0);
             j += 1;
@@ -120,6 +131,63 @@ mod tests {
         assert!(!del.contains(&0));
         assert!(del.contains(&10), "oldest deletable goes first");
         assert!(!del.contains(&990));
+    }
+
+    #[test]
+    fn budget_never_deletes_newest() {
+        assert!(plan(&[0, 10], &[10, 10], 10, 5, 10).is_empty());
+    }
+
+    fn tmp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("abi-ck-unit-{}-{}.bin.zst", std::process::id(), name))
+    }
+
+    fn small_world() -> World {
+        use crate::chem::generate::ChemParams;
+        use crate::world::config::WorldConfig;
+        World::new(&WorldConfig { seed: 5, width: 32, height: 32, pop0: 10, chem: ChemParams { n_base: 8, ..Default::default() }, ..Default::default() })
+    }
+
+    #[test]
+    fn load_rejects_bad_magic() {
+        let p = tmp_path("magic");
+        let mut data = b"NOPE".to_vec();
+        data.extend_from_slice(&VERSION.to_le_bytes());
+        std::fs::write(&p, &data).unwrap();
+        let err = load(&p).err().expect("bad magic must fail");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        std::fs::remove_file(&p).unwrap();
+    }
+
+    #[test]
+    fn load_rejects_wrong_version() {
+        let p = tmp_path("version");
+        save(&small_world(), &p).unwrap();
+        let mut data = std::fs::read(&p).unwrap();
+        data[4..8].copy_from_slice(&2u32.to_le_bytes());
+        std::fs::write(&p, &data).unwrap();
+        let err = load(&p).err().expect("wrong version must fail");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        std::fs::remove_file(&p).unwrap();
+    }
+
+    #[test]
+    fn load_rejects_truncated_file() {
+        let p = tmp_path("trunc");
+        save(&small_world(), &p).unwrap();
+        let data = std::fs::read(&p).unwrap();
+        std::fs::write(&p, &data[..data.len() / 2]).unwrap();
+        assert!(load(&p).is_err());
+        std::fs::remove_file(&p).unwrap();
+    }
+
+    #[test]
+    fn save_leaves_no_tmp_file() {
+        let p = tmp_path("atomic");
+        save(&small_world(), &p).unwrap();
+        assert!(p.exists());
+        assert!(!p.with_extension("tmp").exists());
+        std::fs::remove_file(&p).unwrap();
     }
 
     #[test]
