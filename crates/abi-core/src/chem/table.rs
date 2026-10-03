@@ -221,18 +221,24 @@ mod tests {
     #[test]
     fn gc_prunes_recipe_cache() {
         let mut t = MaterialTable::new(generate_base(1, 4));
-        let r = Recipe { a: 1, b: 2, tq: 0 };
-        let id = t.intern(raw_with_nutri(0.80), r);
-        assert_eq!(t.cached(&r), Some(id));
-        let mut live = vec![true; t.len()];
-        live[id as usize] = false;
-        t.gc(&live);
-        assert!(t.is_evicted(id));
-        assert_eq!(t.cached(&r), None, "evicted recipe removed from cache");
-        // But live recipe stays in cache
+        let r1 = Recipe { a: 1, b: 2, tq: 0 };
+        let id1 = t.intern(raw_with_nutri(0.30), r1);
+        assert_eq!(t.cached(&r1), Some(id1));
+        // Intern r2 (different bin) BEFORE gc so it's already in cache
         let r2 = Recipe { a: 2, b: 3, tq: 0 };
-        let id2 = t.intern(raw_with_nutri(0.70), r2);
-        assert_eq!(t.cached(&r2), Some(id2), "live recipe still cached");
+        let id2 = t.intern(raw_with_nutri(0.80), r2);
+        assert_ne!(id1, id2, "different nutrition levels produce different ids");
+        assert_eq!(t.cached(&r2), Some(id2));
+        // Now mark r1 dead, r2 live, and call gc
+        let mut live = vec![true; t.len()];
+        live[id1 as usize] = false; // id1 is dead
+        live[id2 as usize] = true; // id2 is live
+        t.gc(&live);
+        assert!(t.is_evicted(id1));
+        assert!(!t.is_evicted(id2));
+        // r1 recipe should be pruned, r2 should survive
+        assert_eq!(t.cached(&r1), None, "dead recipe pruned from cache");
+        assert_eq!(t.cached(&r2), Some(id2), "live recipe survives gc");
     }
 
     #[test]
@@ -245,11 +251,11 @@ mod tests {
 
     #[test]
     fn recipe_cache_lookup() {
-        let mut t = MaterialTable::new(generate_base(1, 4));
-        let r = Recipe { a: 1, b: 2, tq: 0 };
-        let id = t.intern(raw_with_nutri(0.80), r);
-        assert_eq!(t.cached(&r), Some(id), "recipe cached immediately after intern");
-        assert_eq!(t.cached(&Recipe { a: 2, b: 1, tq: 0 }), None, "different recipe not cached");
+        let mut c = Chemistry::new(1, &ChemParams::default());
+        let id = c.combine(3, 5, 0.2);
+        assert_eq!(c.table.cached(&Recipe { a: 3, b: 5, tq: 0 }), Some(id), "recipe cached after combine");
+        let id_cached = c.combine(5, 3, 0.2);
+        assert_eq!(id_cached, id, "cached combine returns same id for commutative pair");
     }
 
     #[test]
@@ -260,8 +266,10 @@ mod tests {
         let _ = c.combine(2, 4, 0.5);
         let _ = c.combine(0, 1, 0.1);
         let bytes1 = bincode::serialize(&c).unwrap();
-        let bytes2 = bincode::serialize(&c).unwrap();
-        assert_eq!(bytes1, bytes2, "serialization is deterministic");
+        let mut c2: Chemistry = bincode::deserialize(&bytes1).unwrap();
+        c2.after_load();
+        let bytes2 = bincode::serialize(&c2).unwrap();
+        assert_eq!(bytes1, bytes2, "serialization is deterministic after deserialization round-trip");
     }
 
     #[test]
