@@ -160,3 +160,23 @@ window and 50-130 ms/tick from memory pressure. Fixed for spike 4 by clamping ra
 Diagnosis after three negatives: every configuration converges on "sit on a fertile cell and take plant
 as it regrows", which fed 15k agents every time. Alternatives are selected under scarcity of the default
 resource, not under abundance of the alternative. Spike 4 tests scarcity (plant regrowth 8 and 4 vs 40).
+
+## Spike 4: scarcity (2026-10-03) -- FIRST POSITIVE RESULT
+
+Seed 7, K=2, no lifetime learning, 40k ticks. Plant regrowth 40 -> 8 and 4 mass/tick per fertile cell.
+
+| run       | pop 4k -> 40k | combine 4k -> min -> 40k | artifact energy 4k -> min -> 40k | move at 40k |
+| growth 8  | 3.1k -> 4.7k  | 11% -> 8% -> 13%         | 20% -> 14% -> 44%                | 42% |
+| growth 4  | 1.5k -> 8.0k  | 7% -> 0.9% -> 26%        | 13% -> 4% -> 96%                 | 28% |
+| growth 8 + learning | 3.0k -> 3.1k | 4.8% -> 0.3% | 9.6% -> 1.5%                 | 49% |
+
+Growth 4 is a transition: combining decays exactly as in spikes 1-3 for ~16k ticks (~20 generations),
+then a lineage that lives on what it makes sweeps the population. Energy from artifacts goes to 96%,
+population grows 5x past the grazing carrying capacity, 57k distinct artifacts in use per window.
+Growth 8 shows the same transition, slower and partial. Growth 40 (spikes 1-3) never transitions.
+
+Lifetime reward learning as implemented is anti-exploratory: it suppresses combining (0.3%) and
+evolution selects the learning-rate gene down. Immediate-reward learning locks in the grazing attractor.
+
+Verdict: the primitive set and generated chemistry are sufficient. The binding constraint was ecology:
+alternatives are selected under scarcity of the default resource. Replication on seeds 2, 6, 0 pending.
