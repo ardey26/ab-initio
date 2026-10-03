@@ -17,9 +17,12 @@ struct Cli {
 struct Shape {
     #[arg(long, default_value_t = 256)]
     size: usize,
-    #[arg(long, default_value_t = 20000)]
+    /// Founders. Default: 1.5x the grazing capacity of the default shape
+    /// (100 per 1000 cells x 65,536 cells = 6554), so the world does not crash.
+    #[arg(long, default_value_t = 9800)]
     pop: usize,
-    #[arg(long, default_value_t = 7)]
+    /// Default: the best surviving seed of the Task 19 scan (0.916 artifact energy).
+    #[arg(long, default_value_t = 6)]
     seed: u64,
     #[arg(long, default_value_t = 100.0)]
     graze: f32,
