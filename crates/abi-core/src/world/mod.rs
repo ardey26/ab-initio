@@ -3,6 +3,7 @@ pub mod config;
 pub mod fields;
 pub mod generate;
 pub mod grid;
+pub mod physics;
 
 use crate::agent::genome::Genome;
 use crate::agent::memory::SocialMemory;
