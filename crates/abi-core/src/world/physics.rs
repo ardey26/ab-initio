@@ -28,7 +28,8 @@ pub struct PendingReaction {
     pub hot: bool,
 }
 
-pub fn chunk_physics(cells: &mut [Cell], cell_base: usize, seed: u64, tick: u64, chem: &Chemistry, growth: u32, stats: &mut Stats, pending: &mut Vec<PendingReaction>) {
+/// `fire` gates burning entirely (`WorldConfig::fire`, off by default in M1).
+pub fn chunk_physics(cells: &mut [Cell], cell_base: usize, seed: u64, tick: u64, chem: &Chemistry, growth: u32, fire: bool, stats: &mut Stats, pending: &mut Vec<PendingReaction>) {
     for (li, c) in cells.iter_mut().enumerate() {
         let ci = cell_base + li;
         // Erosion.
@@ -41,15 +42,17 @@ pub fn chunk_physics(cells: &mut [Cell], cell_base: usize, seed: u64, tick: u64,
         // Fire: first loose non-soil item that is energetic and above both its
         // melting point and HOT_TEMP. Ambient cells never ignite; a heat source
         // (volcanic cell, heat action, an adjacent fire via FIRE_HEAT) is needed.
-        let fuel = c.inv.iter().filter(|e| e.0 != MAT_SOIL && e.1 > 0).find(|e| {
-            let p = chem.props(e.0);
-            p[P_ENERGY] > FIRE_ENERGY && c.temp > p[P_MELT].max(HOT_TEMP)
-        }).map(|e| e.0);
-        if let Some(f) = fuel {
-            let burned = c.remove(f, BURN_RATE);
-            c.add(MAT_SOIL, burned);
-            c.temp = (c.temp + FIRE_HEAT).min(1.5);
-            stats.fires += 1;
+        if fire {
+            let fuel = c.inv.iter().filter(|e| e.0 != MAT_SOIL && e.1 > 0).find(|e| {
+                let p = chem.props(e.0);
+                p[P_ENERGY] > FIRE_ENERGY && c.temp > p[P_MELT].max(HOT_TEMP)
+            }).map(|e| e.0);
+            if let Some(f) = fuel {
+                let burned = c.remove(f, BURN_RATE);
+                c.add(MAT_SOIL, burned);
+                c.temp = (c.temp + FIRE_HEAT).min(1.5);
+                stats.fires += 1;
+            }
         }
         // Weathering.
         let top = c.top2_non_soil();
@@ -99,7 +102,7 @@ mod tests {
         let mut pending = Vec::new();
         let mut stats = Stats::default();
         let (seed, tick, growth) = (w.cfg.seed, w.tick, w.growth);
-        chunk_physics(&mut w.grid.cells[..], 0, seed, tick, &w.chem, growth, &mut stats, &mut pending);
+        chunk_physics(&mut w.grid.cells[..], 0, seed, tick, &w.chem, growth, w.cfg.fire, &mut stats, &mut pending);
         w.stats.merge(&stats);
         pending
     }
@@ -177,6 +180,7 @@ mod tests {
     #[test]
     fn fire_burns_energetic_material_above_its_melting_point() {
         let mut w = world();
+        w.cfg.fire = true;
         let c = 9;
         let fuel_raw = { let mut p = [0f32; NP]; p[P_ENERGY] = 3.0; p[P_MELT] = -2.0; p };
         let fuel = w.chem.table.intern(fuel_raw, crate::chem::table::Recipe { a: 1, b: 3, tq: 0 });
@@ -203,6 +207,7 @@ mod tests {
     #[test]
     fn fire_needs_a_heat_source_above_ambient_to_ignite() {
         let mut w = world();
+        w.cfg.fire = true;
         let c = 9;
         let fuel_raw = { let mut p = [0f32; NP]; p[P_ENERGY] = 3.0; p[P_MELT] = -8.0; p };
         let fuel = w.chem.table.intern(fuel_raw, crate::chem::table::Recipe { a: 1, b: 3, tq: 0 });
@@ -215,6 +220,21 @@ mod tests {
         w.grid.cells[c].temp = crate::world::generate::AMBIENT;
         let _ = run(&mut w);
         assert_eq!(w.grid.cells[c].get(fuel), 100, "no fire at ambient temperature");
+        assert_eq!(w.stats.fires, 0);
+    }
+
+    #[test]
+    fn fire_is_off_unless_the_config_enables_it() {
+        let mut w = world();
+        assert!(!w.cfg.fire, "fire is off by default");
+        let c = 9;
+        let fuel_raw = { let mut p = [0f32; NP]; p[P_ENERGY] = 3.0; p[P_MELT] = -2.0; p };
+        let fuel = w.chem.table.intern(fuel_raw, crate::chem::table::Recipe { a: 1, b: 3, tq: 0 });
+        w.grid.cells[c].inv.clear();
+        w.grid.cells[c].add(fuel, 100);
+        w.grid.cells[c].temp = 1.0;
+        let _ = run(&mut w);
+        assert_eq!(w.grid.cells[c].get(fuel), 100, "hot energetic fuel does not burn with fire off");
         assert_eq!(w.stats.fires, 0);
     }
 }

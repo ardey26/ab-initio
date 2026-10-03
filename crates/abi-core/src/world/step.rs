@@ -45,7 +45,7 @@ impl World {
         self.stats.agent_steps += intents.len() as u64;
         // 3. chunk tasks
         let grid_ro = Grid { width: self.grid.width, height: self.grid.height, cells: Vec::new() };
-        let (seed, tick, growth) = (self.cfg.seed, self.tick, self.growth);
+        let (seed, tick, growth, fire) = (self.cfg.seed, self.tick, self.growth, self.cfg.fire);
         let chem = &self.chem;
         let cell_start = &self.cell_start;
         let agent_start = self.agent_start.clone();
@@ -65,7 +65,7 @@ impl World {
                         }
                         metabolize_chunk(&mut ctx, seed, &mut out.births);
                         let ChunkCtx { cells, stats, .. } = ctx;
-                        chunk_physics(cells, cell_base, seed, tick, chem, growth, stats, &mut out.pending);
+                        chunk_physics(cells, cell_base, seed, tick, chem, growth, fire, stats, &mut out.pending);
                     }
                     out
                 })

@@ -15,6 +15,11 @@ pub struct WorldConfig {
     pub crust_frac: f32,
     pub deposit_frac: f32,
     pub checkpoint_every: u64,
+    /// Fire (energetic loose items burning above their melting point and HOT_TEMP).
+    /// Off by default in M1: with fire on, volcanic ignition spreads across the
+    /// map through FIRE_HEAT and blocks the artifact transition (Task 19 scan).
+    #[serde(default)]
+    pub fire: bool,
 }
 
 impl Default for WorldConfig {
@@ -31,6 +36,7 @@ impl Default for WorldConfig {
             crust_frac: 0.3,
             deposit_frac: 0.03,
             checkpoint_every: 10_000,
+            fire: false,
         }
     }
 }

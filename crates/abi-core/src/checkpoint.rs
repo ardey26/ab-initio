@@ -7,7 +7,8 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 const MAGIC: &[u8; 4] = b"ABI1";
-const VERSION: u32 = 1;
+/// 2: `WorldConfig` gained `fire`.
+const VERSION: u32 = 2;
 
 pub fn filename(tick: u64) -> String {
     format!("ck-{:012}.bin.zst", tick)
@@ -164,7 +165,7 @@ mod tests {
         let p = tmp_path("version");
         save(&small_world(), &p).unwrap();
         let mut data = std::fs::read(&p).unwrap();
-        data[4..8].copy_from_slice(&2u32.to_le_bytes());
+        data[4..8].copy_from_slice(&(VERSION + 1).to_le_bytes());
         std::fs::write(&p, &data).unwrap();
         let err = load(&p).err().expect("wrong version must fail");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
