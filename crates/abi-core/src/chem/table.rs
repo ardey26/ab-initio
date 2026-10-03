@@ -6,6 +6,9 @@ use super::props::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Upper bound on cached recipes before the cache is dropped wholesale.
+pub const RECIPE_CACHE_CAP: usize = 1_000_000;
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct Recipe {
     pub a: MatId,
@@ -94,8 +97,18 @@ impl MaterialTable {
                 id
             }
         };
-        self.by_recipe.insert(recipe, id);
+        self.insert_recipe_bounded(recipe, id, RECIPE_CACHE_CAP);
         id
+    }
+
+    /// Cache `recipe -> id`, clearing the whole cache first if it is at `cap`.
+    /// The cache is pure (a recipe always recomputes to the same bin and id), so
+    /// clearing it never changes history; the bound keeps multi-day memory flat.
+    fn insert_recipe_bounded(&mut self, recipe: Recipe, id: MatId, cap: usize) {
+        if self.by_recipe.len() >= cap {
+            self.by_recipe.clear();
+        }
+        self.by_recipe.insert(recipe, id);
     }
 
     /// `live[id]` says whether any mass of `id` exists or any agent holds it.
@@ -167,6 +180,20 @@ mod tests {
         assert_eq!(again, id);
         assert!(!t.is_evicted(id));
         assert_eq!(*t.props(id), props_before);
+    }
+
+    #[test]
+    fn recipe_cache_is_cleared_at_cap() {
+        let mut t = MaterialTable::new(generate_base(1, 4));
+        let rec = |a: MatId| Recipe { a, b: 0, tq: 0 };
+        for a in 0..3 {
+            t.insert_recipe_bounded(rec(a), a, 3);
+        }
+        assert_eq!(t.cached(&rec(0)), Some(0));
+        t.insert_recipe_bounded(rec(3), 3, 3);
+        assert_eq!(t.cached(&rec(0)), None);
+        assert_eq!(t.cached(&rec(2)), None);
+        assert_eq!(t.cached(&rec(3)), Some(3));
     }
 
     #[test]
