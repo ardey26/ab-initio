@@ -4,6 +4,7 @@ pub mod fields;
 pub mod generate;
 pub mod grid;
 pub mod physics;
+pub mod step;
 
 use crate::agent::genome::Genome;
 use crate::agent::memory::SocialMemory;
