@@ -1,3 +1,4 @@
+use abi_core::checkpoint;
 use abi_core::chem::generate::ChemParams;
 use abi_core::events::ExternalEvent;
 use abi_core::hash::state_hash;
@@ -53,4 +54,27 @@ fn pending_events_change_the_state_hash() {
     assert_eq!(state_hash(&a), state_hash(&b));
     b.events.push(10, ExternalEvent::Temperature { cx: 1, cy: 1, radius: 1, delta: 0.1 });
     assert_ne!(state_hash(&a), state_hash(&b));
+}
+
+#[test]
+fn checkpoint_round_trip_preserves_hash_and_continuation() {
+    let dir = std::env::temp_dir().join(format!("abi-ck-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut w = World::new(&cfg());
+    for (t, e) in events() {
+        w.events.push(t, e);
+    }
+    w.run(25);
+    let path = dir.join(checkpoint::filename(w.tick));
+    let bytes = checkpoint::save(&w, &path).unwrap();
+    assert!(bytes > 0);
+    println!("checkpoint bytes (64x32, tick {}): {}", w.tick, bytes);
+    let mut restored = checkpoint::load(&path).unwrap();
+    assert_eq!(state_hash(&restored), state_hash(&w));
+    // Continue both past events at ticks 30..50 and compare.
+    w.run(50);
+    restored.run(50);
+    assert_eq!(state_hash(&restored), state_hash(&w));
+    assert_eq!(restored.conserved_mass(), w.conserved_mass());
+    std::fs::remove_dir_all(&dir).unwrap();
 }

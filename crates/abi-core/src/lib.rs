@@ -7,3 +7,4 @@ pub mod hash;
 pub mod novelty;
 pub mod metrics;
 pub mod events;
+pub mod checkpoint;
