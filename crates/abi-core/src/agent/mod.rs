@@ -2,6 +2,7 @@ pub mod actions;
 pub mod brain;
 pub mod genome;
 pub mod memory;
+pub mod metabolism;
 pub mod sensors;
 
 use crate::chem::props::MatId;
