@@ -134,3 +134,29 @@ a 1M+ tick run is needed as the control for any further redesign.
 Recommended next: (1) NK-landscape chemistry with tunable ruggedness K and unbounded log-scale
 properties, so "for which K does culture emerge" is the experiment; (2) lifetime reward-modulated
 learning + imitation; (3) a multi-hour control run of the current design.
+
+## Spike 3: lifetime learning + NK-landscape chemistry (2026-10-03)
+
+Changes: properties are unbounded reals, squashed where physics/brains read them (no ceiling). Each
+output property = random Fourier function (GP sample) of K other properties from both reactants plus
+continuous temperature. Lifetime copy of the network; action head learns by reward-modulated eligibility
+traces (reward = energy delta minus the agent's running baseline); learning rate and imitation gain are genes.
+
+Richness per K (60 seeds): nearly flat (improving pair fraction 0.39-0.42); best nutrition climbs to
+depth 4 at every K (0.79 at K=0, 0.93 at K=7). Headroom now limited only by the squash.
+
+Seed 7, 40k ticks, 14k-16k agents:
+| run              | combine 4k->36k | artifact energy 4k->36k | take at 36k |
+| K=0 learn        | 5.8% -> 0.4%    | 5.1% -> 0.15%           | 72% |
+| K=2 learn        | 6.6% -> 0.5%    | 7.7% -> 0.26%           | 75% |
+| K=7 learn        | 9.1% -> 0.6%    | 11.8% -> 0.3%           | 70% |
+| K=2 no learning  | 8.6% -> 1.4%    | 8.8% -> 0.6%            | 83% |
+Learning-rate gene never selected upward (~0.0007). Lifetime learning did not help; K did not matter.
+
+Material explosion again: continuous temperature + unbounded properties gave 1-3M materials in use per
+window and 50-130 ms/tick from memory pressure. Fixed for spike 4 by clamping raw properties to [-6,6],
+4 temperature buckets, and 5 quantization levels per property (material lattice bounded at 390k).
+
+Diagnosis after three negatives: every configuration converges on "sit on a fertile cell and take plant
+as it regrows", which fed 15k agents every time. Alternatives are selected under scarcity of the default
+resource, not under abundance of the alternative. Spike 4 tests scarcity (plant regrowth 8 and 4 vs 40).

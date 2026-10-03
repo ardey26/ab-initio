@@ -35,6 +35,7 @@ fn config(args: &[String], seed: u64) -> Config {
         k: arg(args, "--k", 2),
         amplitude: arg(args, "--amp", 1.0),
         rho: arg(args, "--rho", 1.0),
+        growth: arg(args, "--growth", 40),
     }
 }
 
@@ -161,7 +162,7 @@ mod tests {
     use super::*;
 
     fn small(seed: u64) -> Config {
-        Config { seed, w: 32, h: 32, n_base: 12, pop0: 300, max_agents: 5000, random_policy: false, learn: true, k: 2, amplitude: 1.0, rho: 1.0 }
+        Config { seed, w: 32, h: 32, n_base: 12, pop0: 300, max_agents: 5000, random_policy: false, learn: true, k: 2, amplitude: 1.0, rho: 1.0, growth: 40 }
     }
 
     #[test]

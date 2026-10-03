@@ -21,10 +21,10 @@ pub const MAT_SOIL: u32 = 0;
 pub const MAT_PLANT: u32 = 1;
 pub const MAT_ROCK: u32 = 2;
 
-pub const QUANT: f32 = 15.0;
+pub const QUANT: f32 = 4.0;
 const M: usize = 4; // Fourier terms per output property
 const MAXV: usize = 2 * NP + 1; // max input dims: a-selection, b-selection, temperature
-const TEMP_BUCKETS: f32 = 8.0;
+const TEMP_BUCKETS: f32 = 4.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Recipe {
@@ -167,7 +167,7 @@ impl Chemistry {
                 }
                 g += self.amp[j][m] * ph.cos();
             }
-            out[j] = 0.5 * (a[j] + b[j]) + g;
+            out[j] = (0.5 * (a[j] + b[j]) + g).clamp(-6.0, 6.0);
         }
         out
     }

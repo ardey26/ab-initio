@@ -22,7 +22,7 @@ pub const LIFESPAN: u32 = 1500;
 pub const AMBIENT: f32 = 0.2;
 pub const HEAT_DELTA: f32 = 0.2;
 pub const TEMP_DECAY: f32 = 0.85;
-pub const PLANT_GROWTH: u32 = 40;
+
 pub const PLANT_CAP: u32 = 3000;
 pub const STRIKE_YIELD: u32 = 500;
 pub const SOIL_DIFFUSION: u32 = 8;
@@ -145,6 +145,7 @@ pub struct Config {
     pub k: usize,
     pub amplitude: f32,
     pub rho: f32,
+    pub growth: u32,
 }
 
 pub struct World {
@@ -159,6 +160,7 @@ pub struct World {
     pub max_agents: usize,
     pub random_policy: bool,
     pub learn: bool,
+    pub growth: u32,
     pub stats: Stats,
     order: Vec<u32>,
     cell_start: Vec<u32>,
@@ -200,7 +202,7 @@ impl World {
             let wts = genome.w.clone();
             agents.push(Agent { alive: true, id: i as u64, x, y, energy: START_ENERGY, age: 0, body: got, held: [(0, 0); 2], signal: [0.0; 2], last_action: 255, genome, w: wts, learner: Learner::new() });
         }
-        World { seed, w, h, tick: 0, cells, agents, chem, next_id: cfg.pop0 as u64, max_agents: cfg.max_agents, random_policy: cfg.random_policy, learn: cfg.learn, stats: Stats::default(), order: Vec::new(), cell_start: vec![0; w * h + 1], free: Vec::new() }
+        World { seed, w, h, tick: 0, cells, agents, chem, next_id: cfg.pop0 as u64, max_agents: cfg.max_agents, random_policy: cfg.random_policy, learn: cfg.learn, growth: cfg.growth, stats: Stats::default(), order: Vec::new(), cell_start: vec![0; w * h + 1], free: Vec::new() }
     }
 
     #[inline]
@@ -621,12 +623,13 @@ impl World {
                 }
             }
         }
+        let growth = self.growth;
         for c in self.cells.iter_mut() {
             c.temp = c.ambient + (c.temp - c.ambient) * TEMP_DECAY;
             if c.fertile {
                 let plant = c.get(MAT_PLANT);
                 if plant < PLANT_CAP {
-                    let g = c.remove(MAT_SOIL, PLANT_GROWTH.min(PLANT_CAP - plant));
+                    let g = c.remove(MAT_SOIL, growth.min(PLANT_CAP - plant));
                     c.add(MAT_PLANT, g);
                 }
             }
