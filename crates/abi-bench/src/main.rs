@@ -3,6 +3,7 @@ use abi_core::chem::generate::ChemParams;
 use abi_core::hash::state_hash;
 use abi_core::metrics::MetricsRow;
 use abi_core::world::config::WorldConfig;
+use abi_core::world::step::PhaseTimes;
 use abi_core::world::World;
 use clap::{Parser, Subcommand};
 use std::time::Instant;
@@ -37,6 +38,8 @@ impl Shape {
 #[derive(Subcommand)]
 enum Cmd {
     Throughput { #[command(flatten)] shape: Shape, #[arg(long, default_value_t = 500)] ticks: u64, #[arg(long, default_value_t = 8)] threads: usize, #[arg(long, default_value_t = 200)] warmup: u64 },
+    /// Per-phase share of the tick.
+    Phases { #[command(flatten)] shape: Shape, #[arg(long, default_value_t = 300)] ticks: u64, #[arg(long, default_value_t = 8)] threads: usize, #[arg(long, default_value_t = 100)] warmup: u64 },
     Memory { #[command(flatten)] shape: Shape },
     Speedup { #[command(flatten)] shape: Shape, #[arg(long, default_value_t = 300)] ticks: u64 },
     Emergence { #[command(flatten)] shape: Shape, #[arg(long, default_value_t = 60000)] ticks: u64, #[arg(long, default_value_t = 8)] threads: usize },
@@ -64,6 +67,22 @@ fn main() {
         Cmd::Throughput { shape, ticks, threads, warmup } => {
             let (tps, sps, us, pop) = throughput(&shape.cfg(), ticks, warmup, threads);
             println!("ticks_per_s {:.1}\nagent_steps_per_s {:.0}\nus_per_agent_step {:.3}\npop_end {}", tps, sps, us, pop);
+        }
+        Cmd::Phases { shape, ticks, threads, warmup } => {
+            let mut t = PhaseTimes::default();
+            let pop = pool(threads).install(|| {
+                let mut w = World::new(&shape.cfg());
+                w.run(warmup);
+                for _ in 0..ticks {
+                    w.step_timed(&mut t);
+                }
+                w.population()
+            });
+            let total = t.total().as_secs_f64();
+            for (name, d) in t.rows() {
+                println!("{:<18} {:>9.3} ms/tick {:>6.1}%", name, d.as_secs_f64() * 1e3 / ticks as f64, 100.0 * d.as_secs_f64() / total);
+            }
+            println!("{:<18} {:>9.3} ms/tick\npop_end {}", "total", total * 1e3 / ticks as f64, pop);
         }
         Cmd::Memory { shape } => {
             let w = World::new(&shape.cfg());
