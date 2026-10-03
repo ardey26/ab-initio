@@ -187,3 +187,22 @@ Replication (growth 4, K=2, no learning, 40k ticks):
 - Seed 0: extinct at 4k. Plant nutrition 0.30 at growth 4 cannot sustain the founding population. Scarcity must be
   tuned per world or the generator must guarantee a viable autotroph; dead worlds otherwise dominate.
 Result replicates: 3 of 3 surviving seeds transition to artifact-based life under scarcity; 0 of 7 runs did under abundance.
+
+Top foods by energy, seed 7 growth 4, after the transition (tick 40k, artifacts = 95% of energy):
+  id 1407  8.4%  nutri 0.77 toxic 0.00  recipe: plant + artifact 1022 (cold)
+  id 1131  3.7%  nutri 0.86 toxic 0.00  recipe: artifact 1022 + artifact 1069 (warm)   <- depth >= 2
+  id  348  3.2%  nutri 0.83 toxic 0.00  recipe: plant + ore 38 (warm, needs heating or a hot cell)
+  id    1  2.3%  raw plant
+  id 1731  2.1%  nutri 0.64 toxic 0.00  recipe: plant + artifact 310
+  id  998  1.5%  nutri 0.82 toxic 0.00  recipe: plant + artifact 769
+Not a plant+plant trick. No single artifact exceeds 8.4%; 68k distinct artifacts in use; nested recipes of
+depth 2 and more; every top artifact has zero toxicity (selected for). Cumulative combination is real.
+
+## Verdict of the spike series
+The primitives (move, take, drop, combine, heat, strike, give, emit) plus generated chemistry are sufficient
+for agent-made, nested, diverse technology to emerge and sweep a population. The binding constraints found:
+1. Scarcity of the default resource (ecology), not chemistry richness or learning.
+2. Matter transport (soil diffusion) or closed matter locks up and starves life.
+3. Bounded material identity (quantized property vector) or the artifact space explodes.
+4. Immediate-reward lifetime learning is anti-exploratory and gets selected out.
+5. Autotroph viability varies by seed; scarcity must be relative to each world's chemistry.
