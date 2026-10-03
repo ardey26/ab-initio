@@ -10,6 +10,12 @@ fn mass_is_exactly_conserved_over_1000_ticks() {
         w.step();
         assert_eq!(w.total_mass(), m0, "mass changed at tick {}", t);
     }
+    // The run must have exercised the paths whose mass accounting is being checked.
+    let s = &w.stats;
+    assert!(s.births > 0, "no births occurred");
+    assert!(s.deaths > 0, "no deaths occurred");
+    assert!(s.combines > 0, "no combines occurred");
+    assert!(s.actions[0] > 0, "no moves occurred");
 }
 
 #[test]

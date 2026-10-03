@@ -27,6 +27,24 @@ fn same_seed_same_history_on_1_4_8_threads() {
 }
 
 #[test]
+fn large_world_same_history_on_1_and_8_threads() {
+    // 128x128 is 16 chunks, so rayon schedules real parallel work across chunks.
+    let big = WorldConfig { width: 128, height: 128, pop0: 1500, ..cfg() };
+    let run_big = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        pool.install(|| {
+            let mut w = World::new(&big);
+            w.run(150);
+            (state_hash(&w), w.population())
+        })
+    };
+    let a = run_big(1);
+    let b = run_big(8);
+    assert_eq!(a, b);
+    assert!(a.1 > 0, "population should survive 150 ticks");
+}
+
+#[test]
 fn different_seeds_differ() {
     let mut w1 = World::new(&cfg());
     let mut w2 = World::new(&WorldConfig { seed: 22, ..cfg() });

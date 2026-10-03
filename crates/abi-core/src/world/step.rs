@@ -30,6 +30,7 @@ pub fn split_chunks<'a>(cells: &'a mut [Cell], agents: &'a mut [Agent], agent_st
         rest_agents = rest;
         out.push((cs, mine));
     }
+    debug_assert!(rest_agents.is_empty(), "agents not fully assigned to chunks; was sort_agents called?");
     out
 }
 
