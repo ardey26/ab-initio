@@ -108,3 +108,29 @@ Two physics-consistent remedies to test next, in this order:
    Each rung is rewarded on its own. Consistent with "the universe does not depend on life".
 2. Lifetime reward-modulated learning (energy delta as reward) so a lucky individual discovery is
    repeated within a life, then imitation so it spreads. The Baldwin route the design already names.
+
+## Spike 2: environmental chemistry (2026-10-03)
+
+Changes: cells react on their own (hot cells every tick, cold cells once per 32 ticks on average),
+2% volcanic cells at temperature 0.8, bedrock erodes into a seeded ore at 10 mass/tick, material
+identity = quantized property vector (15 levels) so recipes landing on the same properties are one material.
+
+Without quantized identity the artifact table hit 8.8M ids in 3000 ticks. With it: 60k-80k ids at 40k ticks,
+still growing slowly. GC remains mandatory.
+
+Results, 40k ticks (~60 generations, generation time ~600-700 ticks), 10k-15k agents:
+- Seed 0: energy from artifacts 9.1% -> 1.3% and plateaus. Combine 7.6% -> 1.6%. Heat 4.0% -> 0.35%.
+  Movement stays at 32% (was 10% without environmental chemistry).
+- Seeds 43, 14: artifact energy -> 0.1%, combine -> 0.5-0.7%, heat -> 0.3-0.4%.
+- Seed 2: extinct at 4k ticks (erosion + weathering shifted the ecology).
+- Environmental reactions fall 4.7M -> 0.8-1.5M per window: agents graze plant below the reaction
+  threshold and eat the ores. Life starves the chemistry of inputs.
+
+Verdict: a small persistent artifact niche appears (seed 0) but nothing climbs. Found artifacts with
+nutrition 1.0 are not enough for selection to hold exploratory actions. Direction of selection at the
+start is against combining in every seed. 60 generations is too few to rule out drift finding it later;
+a 1M+ tick run is needed as the control for any further redesign.
+
+Recommended next: (1) NK-landscape chemistry with tunable ruggedness K and unbounded log-scale
+properties, so "for which K does culture emerge" is the experiment; (2) lifetime reward-modulated
+learning + imitation; (3) a multi-hour control run of the current design.

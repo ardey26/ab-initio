@@ -32,7 +32,7 @@ fn evolve(args: &[String]) {
     pool(arg(args, "--threads", 8));
     let mut w = World::new(seed, size, size, n_base, pop, 30000, random);
     let m0 = w.total_mass();
-    println!("tick,pop,births,deaths,steps_per_s,ms_per_tick,move,take,drop,combine,heat,strike,give,emit,combines_ok,combines_hot,strikes_ok,gives_ok,artifact_energy_frac,artifacts_in_use,held_artifacts,materials_eaten,n_known,mean_energy");
+    println!("tick,pop,births,deaths,steps_per_s,ms_per_tick,move,take,drop,combine,heat,strike,give,emit,combines_ok,combines_hot,strikes_ok,gives_ok,artifact_energy_frac,artifacts_in_use,held_artifacts,materials_eaten,n_known,mean_energy,env_reactions,env_hot");
     let mut t0 = Instant::now();
     while w.tick < ticks {
         w.step();
@@ -45,11 +45,11 @@ fn evolve(args: &[String]) {
             let rates: Vec<String> = s.actions.iter().map(|&a| format!("{:.4}", a as f64 / steps)).collect();
             let mean_e: f32 = w.agents.iter().filter(|a| a.alive).map(|a| a.energy).sum::<f32>() / pop.max(1) as f32;
             println!(
-                "{},{},{},{},{:.0},{:.2},{},{},{},{},{},{:.4},{},{},{},{},{:.1}",
+                "{},{},{},{},{:.0},{:.2},{},{},{},{},{},{:.4},{},{},{},{},{:.1},{},{}",
                 w.tick, pop, s.births, s.deaths, steps / dt, dt * 1000.0 / window as f64, rates.join(","),
                 s.combines_ok, s.combines_hot, s.strikes_ok, s.gives_ok,
                 if s.energy_total > 0.0 { s.energy_from_artifacts / s.energy_total } else { 0.0 },
-                s.artifacts_in_use.len(), w.held_artifacts(), s.materials_eaten.len(), w.chem.n_known(), mean_e
+                s.artifacts_in_use.len(), w.held_artifacts(), s.materials_eaten.len(), w.chem.n_known(), mean_e, s.env_reactions, s.env_hot
             );
             assert_eq!(w.total_mass(), m0, "mass conservation violated");
             if args.iter().any(|a| a == "--dump") {

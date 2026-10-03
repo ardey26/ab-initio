@@ -25,6 +25,12 @@ pub const PLANT_GROWTH: u32 = 40;
 pub const PLANT_CAP: u32 = 3000;
 pub const STRIKE_YIELD: u32 = 500;
 pub const SOIL_DIFFUSION: u32 = 8;
+pub const COLD_WEATHER_PERIOD: u64 = 32; // cold cells react once per this many ticks on average
+pub const WEATHER_RATE: u32 = 10; // mass of each reactant consumed per tick by in-cell reaction
+pub const EROSION: u32 = 10; // ore mass released per tick from bedrock
+pub const BEDROCK0: u32 = 1_000_000;
+pub const VOLCANIC_FRAC: f32 = 0.02;
+pub const VOLCANIC_TEMP: f32 = 0.8;
 
 const COST: [f32; 8] = [0.3, 0.2, 0.2, 1.0, 3.0, 2.0, 0.2, 0.1];
 pub const ACTION_NAMES: [&str; 8] = ["move", "take", "drop", "combine", "heat", "strike", "give", "emit"];
@@ -33,7 +39,9 @@ pub const ACTION_NAMES: [&str; 8] = ["move", "take", "drop", "combine", "heat", 
 pub struct Cell {
     pub inv: Vec<(u32, u32)>, // (material id, mass)
     pub temp: f32,
-    pub bedrock: u32, // mass of MAT_ROCK locked in the crust
+    pub ambient: f32,
+    pub bedrock: u32, // mass locked in the crust
+    pub ore: u32, // which material the crust here erodes into
     pub fertile: bool,
 }
 
@@ -104,6 +112,8 @@ pub struct Stats {
     pub gives_ok: u64,
     pub births: u64,
     pub deaths: u64,
+    pub env_reactions: u64,
+    pub env_hot: u64,
     pub energy_total: f64,
     pub energy_from_artifacts: f64,
     pub artifacts_in_use: HashSet<u32>,
@@ -133,14 +143,16 @@ impl World {
         let mut rng = Rng::new(seed ^ 0x3031_4C44_0000_0001);
         let mut cells = vec![Cell::default(); w * h];
         for c in cells.iter_mut() {
-            c.temp = AMBIENT;
+            c.ambient = if rng.f32() < VOLCANIC_FRAC { VOLCANIC_TEMP } else { AMBIENT };
+            c.temp = c.ambient;
             c.add(MAT_SOIL, 5000);
             c.fertile = rng.f32() < 0.5;
             if c.fertile {
                 c.add(MAT_PLANT, 1000);
             }
             if rng.f32() < 0.3 {
-                c.bedrock = 20000;
+                c.bedrock = BEDROCK0;
+                c.ore = 3 + rng.range(n_base - 3) as u32;
             }
             for m in 3..n_base as u32 {
                 if rng.f32() < 0.03 {
@@ -534,8 +546,45 @@ impl World {
                 }
             }
         }
+        for ci in 0..self.cells.len() {
+            // Erosion: crust releases its ore into the loose inventory.
+            let c = &mut self.cells[ci];
+            if c.bedrock > 0 {
+                let e = c.bedrock.min(EROSION);
+                c.bedrock -= e;
+                let ore = c.ore;
+                c.add(ore, e);
+            }
+            // Weathering: the two most massive loose items react, cold or hot.
+            let mut top: [(u32, u32); 2] = [(0, 0); 2];
+            for &(id, m) in c.inv.iter() {
+                if id == MAT_SOIL {
+                    continue;
+                }
+                if m > top[0].1 || (m == top[0].1 && id < top[0].0) {
+                    top[1] = top[0];
+                    top[0] = (id, m);
+                } else if m > top[1].1 || (m == top[1].1 && id < top[1].0) {
+                    top[1] = (id, m);
+                }
+            }
+            let temp = c.temp;
+            let hot_cell = temp > AMBIENT + 0.1;
+            let cold_roll = hash3(self.seed ^ 0x3EA7, self.tick, ci as u64) % COLD_WEATHER_PERIOD == 0;
+            if top[0].1 >= WEATHER_RATE && top[1].1 >= WEATHER_RATE && (hot_cell || cold_roll) {
+                c.remove(top[0].0, WEATHER_RATE);
+                c.remove(top[1].0, WEATHER_RATE);
+                let id = self.chem.combine(top[0].0, top[1].0, temp);
+                let hot = temp >= Chemistry::hot_threshold(&self.chem.props[top[0].0 as usize], &self.chem.props[top[1].0 as usize]);
+                self.cells[ci].add(id, 2 * WEATHER_RATE);
+                self.stats.env_reactions += 1;
+                if hot {
+                    self.stats.env_hot += 1;
+                }
+            }
+        }
         for c in self.cells.iter_mut() {
-            c.temp = AMBIENT + (c.temp - AMBIENT) * TEMP_DECAY;
+            c.temp = c.ambient + (c.temp - c.ambient) * TEMP_DECAY;
             if c.fertile {
                 let plant = c.inv.iter().find(|e| e.0 == MAT_PLANT).map(|e| e.1).unwrap_or(0);
                 if plant < PLANT_CAP {

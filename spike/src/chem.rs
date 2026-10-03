@@ -42,7 +42,19 @@ pub struct Chemistry {
     pub props: Vec<Props>,
     pub recipe: Vec<Option<Recipe>>,
     index: HashMap<Recipe, u32>,
+    by_props: HashMap<[u8; NP], u32>,
     kernel: [[(u8, f32); TERMS]; NP],
+}
+
+pub const QUANT: f32 = 15.0;
+
+#[inline]
+pub fn quantize(p: &Props) -> [u8; NP] {
+    let mut q = [0u8; NP];
+    for i in 0..NP {
+        q[i] = (p[i] * QUANT).round() as u8;
+    }
+    q
 }
 
 #[inline]
@@ -91,7 +103,11 @@ impl Chemistry {
             }
         }
         let recipe = vec![None; n_base];
-        Chemistry { seed, n_base, props, recipe, index: HashMap::new(), kernel }
+        let mut by_props = HashMap::new();
+        for (i, p) in props.iter().enumerate() {
+            by_props.entry(quantize(p)).or_insert(i as u32);
+        }
+        Chemistry { seed, n_base, props, recipe, index: HashMap::new(), by_props, kernel }
     }
 
     #[inline]
@@ -135,9 +151,18 @@ impl Chemistry {
             return id;
         }
         let p = self.react(&self.props[lo as usize], &self.props[hi as usize], hot);
-        let id = self.props.len() as u32;
-        self.props.push(p);
-        self.recipe.push(Some(key));
+        // A material is its properties: recipes that land in the same bin are the same thing.
+        let q = quantize(&p);
+        let id = match self.by_props.get(&q) {
+            Some(&id) => id,
+            None => {
+                let id = self.props.len() as u32;
+                self.props.push(p);
+                self.recipe.push(Some(key));
+                self.by_props.insert(q, id);
+                id
+            }
+        };
         self.index.insert(key, id);
         id
     }
