@@ -33,7 +33,7 @@ fn q(v: f32, scale: f32) -> i8 {
 
 impl Genome {
     pub fn random(rng: &mut Rng) -> Self {
-        let hidden = NH_MIN + rng.range((NH_MAX - NH_MIN) as usize / 2) as u8; // start small: 4..18
+        let hidden = NH_MIN + rng.range((NH_MAX - NH_MIN) as usize / 2) as u8; // start small: 4..=13
         let h = hidden as usize;
         let mut gen = |n: usize, sigma: f32| -> Vec<i8> { (0..n).map(|_| q(rng.normal() * sigma, SCALE0)).collect() };
         let w1 = gen(h * NIN, 0.3);
@@ -62,6 +62,36 @@ impl Genome {
         h
     }
 
+    fn grow(&mut self) {
+        let h = self.hidden as usize;
+        if self.hidden < NH_MAX {
+            self.hidden += 1;
+            self.w1.extend(std::iter::repeat(0i8).take(NIN));
+            self.b1.push(0);
+            // w2 is [NOUT][h]: insert a zero column at the end of each row.
+            let mut w2 = Vec::with_capacity(NOUT * (h + 1));
+            for k in 0..NOUT {
+                w2.extend_from_slice(&self.w2[k * h..(k + 1) * h]);
+                w2.push(0);
+            }
+            self.w2 = w2;
+        }
+    }
+
+    fn shrink(&mut self) {
+        let h = self.hidden as usize;
+        if self.hidden > NH_MIN {
+            self.hidden -= 1;
+            self.w1.truncate((h - 1) * NIN);
+            self.b1.truncate(h - 1);
+            let mut w2 = Vec::with_capacity(NOUT * (h - 1));
+            for k in 0..NOUT {
+                w2.extend_from_slice(&self.w2[k * h..k * h + h - 1]);
+            }
+            self.w2 = w2;
+        }
+    }
+
     pub fn mutate(&self, rng: &mut Rng) -> Self {
         let mut g = self.clone();
         let mutate_vec = |v: &mut Vec<i8>, rng: &mut Rng| {
@@ -77,27 +107,10 @@ impl Genome {
         mutate_vec(&mut g.b2, rng);
         if rng.f32() < P_HIDDEN_MUT {
             let grow = rng.f32() < 0.5;
-            let h = g.hidden as usize;
-            if grow && g.hidden < NH_MAX {
-                g.hidden += 1;
-                g.w1.extend(std::iter::repeat(0i8).take(NIN));
-                g.b1.push(0);
-                // w2 is [NOUT][h]: insert a zero column at the end of each row.
-                let mut w2 = Vec::with_capacity(NOUT * (h + 1));
-                for k in 0..NOUT {
-                    w2.extend_from_slice(&g.w2[k * h..(k + 1) * h]);
-                    w2.push(0);
-                }
-                g.w2 = w2;
-            } else if !grow && g.hidden > NH_MIN {
-                g.hidden -= 1;
-                g.w1.truncate((h - 1) * NIN);
-                g.b1.truncate(h - 1);
-                let mut w2 = Vec::with_capacity(NOUT * (h - 1));
-                for k in 0..NOUT {
-                    w2.extend_from_slice(&g.w2[k * h..k * h + h - 1]);
-                }
-                g.w2 = w2;
+            if grow {
+                g.grow();
+            } else {
+                g.shrink();
             }
         }
         if rng.f32() < P_SCALAR_MUT {
@@ -113,6 +126,7 @@ impl Genome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::brain::{forward, NIN, NOUT};
     use crate::rng::Rng;
 
     #[test]
@@ -154,5 +168,96 @@ mod tests {
         let mut h = g.clone();
         h.w2[0] = h.w2[0].wrapping_add(1);
         assert_ne!(g.hash(), h.hash());
+    }
+
+    #[test]
+    fn grow_preserves_forward_output_and_shrink_drops_last_column() {
+        let g = Genome::random(&mut Rng::new(11));
+        // Skip this test if genome is at boundary (can't grow/shrink further)
+        let g = if g.hidden == NH_MIN || g.hidden == NH_MAX {
+            let g2 = Genome::random(&mut Rng::new(7));
+            if g2.hidden == NH_MIN || g2.hidden == NH_MAX {
+                // Skip if still at boundary
+                return;
+            }
+            g2
+        } else {
+            g
+        };
+
+        let h = g.hidden as usize;
+        let input = [0.37f32; NIN];
+        let mut before = [0f32; NOUT];
+        forward(&g, &input, &mut before);
+
+        // Test grow: add zero weights and bias, output should be unchanged
+        let mut grown = g.clone();
+        grown.grow();
+        assert_eq!(
+            grown.hidden as usize,
+            h + 1,
+            "hidden should increase by 1"
+        );
+        // Check w2 layout: each row of NOUT should have the old h values, then a 0
+        for k in 0..NOUT {
+            let old_row = &g.w2[k * h..(k + 1) * h];
+            let new_row = &grown.w2[k * (h + 1)..(k + 1) * (h + 1)];
+            for j in 0..h {
+                assert_eq!(
+                    new_row[j], old_row[j],
+                    "grow: w2[{}, {}] should be unchanged",
+                    k, j
+                );
+            }
+            assert_eq!(
+                new_row[h], 0,
+                "grow: new w2 column should be zero"
+            );
+        }
+        // Check new w1 and b1 are zero
+        for i in 0..NIN {
+            assert_eq!(grown.w1[h * NIN + i], 0, "grow: new w1 should be zero");
+        }
+        assert_eq!(grown.b1[h], 0, "grow: new b1 should be zero");
+
+        // Forward pass should be unchanged (new neuron has zero input weights and bias)
+        let mut after = [0f32; NOUT];
+        forward(&grown, &input, &mut after);
+        for k in 0..NOUT {
+            let diff = (after[k] - before[k]).abs();
+            assert!(
+                diff < 1e-6,
+                "grow: forward output[{}] changed by {}, expected < 1e-6",
+                k, diff
+            );
+        }
+
+        // Test shrink: remove last hidden neuron column from w2
+        let mut shrunk = g.clone();
+        shrunk.shrink();
+        assert_eq!(
+            shrunk.hidden as usize,
+            h - 1,
+            "hidden should decrease by 1"
+        );
+        // Check w2 layout: each row should have the first h-1 values of the old row
+        for k in 0..NOUT {
+            let old_row = &g.w2[k * h..(k + 1) * h];
+            let new_row = &shrunk.w2[k * (h - 1)..(k + 1) * (h - 1)];
+            for j in 0..h - 1 {
+                assert_eq!(
+                    new_row[j], old_row[j],
+                    "shrink: w2[{}, {}] should be old row's first {} values",
+                    k, j, h - 1
+                );
+            }
+        }
+        // Check truncated w1 and b1
+        assert_eq!(
+            shrunk.w1.len(),
+            (h - 1) * NIN,
+            "shrink: w1 length should be (h-1)*NIN"
+        );
+        assert_eq!(shrunk.b1.len(), h - 1, "shrink: b1 length should be h-1");
     }
 }
