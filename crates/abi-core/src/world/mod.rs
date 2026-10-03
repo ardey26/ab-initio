@@ -11,6 +11,7 @@ use crate::agent::memory::SocialMemory;
 use crate::agent::{Agent, BODY_TARGET, NO_ACTION, START_ENERGY};
 use crate::chem::generate::MAT_SOIL;
 use crate::chem::Chemistry;
+use crate::events::EventLog;
 use crate::rng::{hash3, Rng};
 use crate::stats::Stats;
 use config::WorldConfig;
@@ -30,6 +31,8 @@ pub struct World {
     pub stats: Stats,
     pub agent_start: Vec<u32>,
     pub cell_start: Vec<u32>,
+    pub events: EventLog,
+    pub external_mass: i64,
 }
 
 impl World {
@@ -49,7 +52,7 @@ impl World {
         }
         let n_chunks = grid.n_chunks();
         let n_cells = grid.len();
-        let mut w = World { cfg: cfg.clone(), tick: 0, grid, chem, agents, next_id: cfg.pop0 as u64, growth: terrain.growth_per_tick, stats: Stats::default(), agent_start: vec![0; n_chunks + 1], cell_start: vec![0; n_cells + 1] };
+        let mut w = World { cfg: cfg.clone(), tick: 0, grid, chem, agents, next_id: cfg.pop0 as u64, growth: terrain.growth_per_tick, stats: Stats::default(), agent_start: vec![0; n_chunks + 1], cell_start: vec![0; n_cells + 1], events: EventLog::default(), external_mass: 0 };
         w.sort_agents();
         w
     }
@@ -89,6 +92,11 @@ impl World {
         let cells: u64 = self.grid.cells.iter().map(|c| c.mass()).sum();
         let agents: u64 = self.agents.iter().filter(|a| a.alive).map(|a| a.body as u64 + a.held[0].1 as u64 + a.held[1].1 as u64).sum();
         cells + agents
+    }
+
+    /// Total mass minus matter added from outside; constant over any run.
+    pub fn conserved_mass(&self) -> i64 {
+        self.total_mass() as i64 - self.external_mass
     }
 
     pub const CHUNK_CELLS: usize = CHUNK * CHUNK;

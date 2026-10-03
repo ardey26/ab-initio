@@ -6,3 +6,4 @@ pub mod stats;
 pub mod hash;
 pub mod novelty;
 pub mod metrics;
+pub mod events;

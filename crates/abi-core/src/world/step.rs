@@ -108,7 +108,7 @@ impl World {
         diffuse_soil(&mut self.grid);
         diffuse_water(&mut self.grid);
         relax_temperature(&mut self.grid, TEMP_DECAY);
-        // 6. external events (Task 16 fills this in)
+        // 6. external events
         self.apply_events();
         // 7.
         self.tick += 1;
@@ -120,6 +120,11 @@ impl World {
         }
     }
 
-    /// Replaced in Task 16.
-    pub(crate) fn apply_events(&mut self) {}
+    pub(crate) fn apply_events(&mut self) {
+        let tick = self.tick;
+        let evs: Vec<crate::events::ExternalEvent> = self.events.take_for(tick).iter().map(|e| e.1.clone()).collect();
+        for e in &evs {
+            crate::events::apply(self, e);
+        }
+    }
 }

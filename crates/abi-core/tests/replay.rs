@@ -1,0 +1,47 @@
+use abi_core::chem::generate::ChemParams;
+use abi_core::events::ExternalEvent;
+use abi_core::hash::state_hash;
+use abi_core::world::config::WorldConfig;
+use abi_core::world::World;
+
+fn cfg() -> WorldConfig {
+    WorldConfig { seed: 31, width: 64, height: 32, pop0: 300, chem: ChemParams { n_base: 16, ..Default::default() }, ..Default::default() }
+}
+
+fn events() -> Vec<(u64, ExternalEvent)> {
+    vec![
+        (10, ExternalEvent::Rain { cx: 10, cy: 10, radius: 3, water_per_cell: 400 }),
+        (20, ExternalEvent::Temperature { cx: 40, cy: 5, radius: 4, delta: 0.6 }),
+        (30, ExternalEvent::DropMatter { x: 3, y: 3, material: 5, mass: 3000 }),
+        (40, ExternalEvent::Impact { cx: 50, cy: 20, radius: 5 }),
+        (50, ExternalEvent::SeedOrganism { x: 7, y: 7 }),
+    ]
+}
+
+#[test]
+fn events_are_deterministic_and_mass_ledger_holds() {
+    let run = || {
+        let mut w = World::new(&cfg());
+        for (t, e) in events() {
+            w.events.push(t, e);
+        }
+        let c0 = w.conserved_mass();
+        w.run(100);
+        assert_eq!(w.conserved_mass(), c0);
+        assert!(w.external_mass > 0, "rain and drop add external mass");
+        (state_hash(&w), w.population())
+    };
+    assert_eq!(run(), run());
+}
+
+#[test]
+fn a_run_with_events_differs_from_one_without() {
+    let mut a = World::new(&cfg());
+    let mut b = World::new(&cfg());
+    for (t, e) in events() {
+        b.events.push(t, e);
+    }
+    a.run(60);
+    b.run(60);
+    assert_ne!(state_hash(&a), state_hash(&b));
+}

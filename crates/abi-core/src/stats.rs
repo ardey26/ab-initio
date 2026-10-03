@@ -5,9 +5,9 @@
 use crate::chem::props::MatId;
 use std::collections::BTreeMap;
 
-/// Material ids are lattice bins, always below 5^8.
-const MAT_ID_LIMIT: usize = 390_625;
-const MAT_WORDS: usize = 6104;
+/// Material ids start as lattice bins (below 5^8 = 390_625); bases sharing a bin still
+/// get their own ids, so ids can slightly exceed that. 6144 words cover 393_216 ids.
+const MAT_WORDS: usize = 6144;
 const BEHAVIOUR_WORDS: usize = 1024;
 
 #[derive(Clone, Debug)]
@@ -96,7 +96,7 @@ impl Stats {
     }
 
     pub fn note_material(&mut self, id: MatId) {
-        debug_assert!((id as usize) < MAT_ID_LIMIT);
+        debug_assert!((id as usize) < MAT_WORDS * 64);
         self.materials_in_use[(id >> 6) as usize] |= 1u64 << (id & 63);
     }
 
