@@ -67,6 +67,8 @@ impl World {
 
     /// The tick body, with a wall-clock timer around each phase. `step` delegates here.
     pub fn step_timed(&mut self, t: &mut PhaseTimes) {
+        #[cfg(debug_assertions)]
+        let before = self.conserved_mass();
         let mut clock = Instant::now();
         let mut lap = |d: &mut Duration| {
             let now = Instant::now();
@@ -156,6 +158,8 @@ impl World {
         // 7.
         self.tick += 1;
         lap(&mut t.fields);
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(self.conserved_mass(), before, "mass not conserved in tick {}", self.tick);
     }
 
     pub fn run(&mut self, ticks: u64) {
