@@ -1,6 +1,6 @@
 # M2: observer and chronicle, design specification
 
-Status: draft for review. Extends `2026-10-03-ab-initio-design.md` section 7. Where this document
+Status: approved 2026-10-04. Extends `2026-10-03-ab-initio-design.md` section 7. Where this document
 and the parent spec differ, this document wins for M2.
 
 ## 1. Purpose
