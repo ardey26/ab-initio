@@ -19,9 +19,6 @@ observer, which looks at the data afterwards and reports patterns as facts.
 
 ## The ideas underneath, explained plainly
 
-Most of what makes this project work is a handful of mathematical choices. None of them needs
-more than high-school maths to understand.
-
 ### 1. Same seed, same history, on any number of CPU cores
 
 Simulations use randomness: which way a creature turns, how a mutation lands. Ordinary random
