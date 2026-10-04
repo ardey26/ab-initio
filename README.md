@@ -4,8 +4,6 @@ An artificial-life simulation in which intelligence, culture and technology are 
 from physics rather than be written in. You are the Watcher: you can see everything, revisit any
 moment, and rarely act. There is no goal, no score and no ending.
 
-This repository holds the simulation core (milestone M1, complete) and the design for the observer
-that will narrate it (M2, planned). There is no picture yet. The viewer is M3.
 
 ## What it is, in one paragraph
 
@@ -163,15 +161,6 @@ cargo test --release -p abi-bench -- --ignored
 
 `runs/first/metrics.csv` has one row per 1,000 ticks: population, action rates, energy from
 artifacts, distinct materials and behaviours in use (the project's health metric), and more.
-
-## Status
-
-M1 complete: deterministic parallel core, exact conservation, replay, checkpoints, metrics,
-benchmarks, and the emergence canary passing on 4 reference seeds. Known gaps, all measured and
-recorded in `docs/perf.md`: per-step cost and parallel speedup are about half the targets, and the
-transition to artifact-based life happens on roughly one seed in five rather than every seed. The
-M2 prelude plan addresses the first two; an experiment harness in the same plan is designed to
-explain the third.
 
 ## Reading
 
